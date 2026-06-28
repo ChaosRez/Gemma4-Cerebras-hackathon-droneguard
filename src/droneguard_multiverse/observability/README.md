@@ -1,0 +1,12 @@
+# Observability
+
+This folder should hold trace event and run log helpers.
+
+Minimum output:
+
+- local JSONL trace per run
+- in-memory events for the current web session
+- structured timing and cache metadata for each agent call
+
+The web app should expose these events in an observability panel so judges can inspect Gemma-4 prompts, responses, normalized outputs, errors, and Commander decisions.
+
