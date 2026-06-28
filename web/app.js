@@ -8,6 +8,13 @@ const state = {
   missionProgress: 0,
   animationFrame: null,
   agentStage: -1,
+  map: null,
+  mapReady: false,
+  mapScenarioId: null,
+  waypointMarkers: [],
+  obstacleMarker: null,
+  mapStatusNode: null,
+  mapUnavailable: false,
 };
 
 const els = {
@@ -130,7 +137,7 @@ function renderScenarioList() {
       <dl>
         <div><dt>Risk</dt><dd>${escapeHtml(scenario.risk_label)}</dd></div>
         <div><dt>Waypoints</dt><dd>${scenario.waypoint_count}</dd></div>
-        <div><dt>Obstacles</dt><dd>${scenario.obstacle_count}</dd></div>
+        <div><dt>Restricted</dt><dd>${scenario.obstacle_count}</dd></div>
         <div><dt>Expected</dt><dd>${formatAction(scenario.expected_action)}</dd></div>
       </dl>
     `;
@@ -148,7 +155,510 @@ function renderMission() {
   updateBatteryMetric(state.missionProgress);
   els.expectedMetric.textContent = formatAction(scenario.expected_action);
   els.runMetric.textContent = state.result?.run_id?.slice(0, 18) ?? els.runMetric.textContent;
-  els.mapCanvas.innerHTML = buildMapSvg(scenario, state.result?.decision, state.missionProgress);
+  if (canUseMapLibre()) {
+    ensureMissionMap(scenario);
+    updateMissionMap(scenario, state.result?.decision, state.missionProgress);
+  } else {
+    els.mapCanvas.innerHTML = buildMapSvg(scenario, state.result?.decision, state.missionProgress);
+  }
+}
+
+function canUseMapLibre() {
+  return Boolean(window.maplibregl?.Map && !state.mapUnavailable);
+}
+
+function ensureMissionMap(scenario) {
+  if (!state.map) {
+    els.mapCanvas.innerHTML = `
+      <div id="missionMap" class="mission-map" aria-label="Mission map"></div>
+      <div id="mapStatus" class="map-status"></div>
+    `;
+    state.mapStatusNode = document.querySelector("#mapStatus");
+    try {
+      state.map = new window.maplibregl.Map({
+        container: "missionMap",
+        style: missionMapStyle(),
+        center: [scenario.start.lon, scenario.start.lat],
+        zoom: 15.8,
+        pitch: 0,
+        bearing: 0,
+        attributionControl: false,
+        interactive: true,
+      });
+    } catch (error) {
+      state.mapUnavailable = true;
+      state.map = null;
+      els.mapCanvas.innerHTML = buildMapSvg(scenario, state.result?.decision, state.missionProgress);
+      return;
+    }
+    state.map.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "top-right");
+    state.map.addControl(new window.maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+    state.map.on("load", () => {
+      state.mapReady = true;
+      installMissionMapLayers(state.map);
+      refreshMissionMapScenario(scenario);
+      updateMissionMap(scenario, state.result?.decision, state.missionProgress);
+    });
+    return;
+  }
+
+  if (state.mapScenarioId !== scenario.scenario_id && state.mapReady) {
+    refreshMissionMapScenario(scenario);
+  }
+}
+
+function missionMapStyle() {
+  return {
+    version: 8,
+    name: "DroneGuard local mission map",
+    sources: {},
+    layers: [
+      {
+        id: "background",
+        type: "background",
+        paint: { "background-color": "#d8e5df" },
+      },
+    ],
+  };
+}
+
+function installMissionMapLayers(map) {
+  const sources = [
+    "facility-zones",
+    "service-road",
+    "route-line",
+    "progress-line",
+    "detour-line",
+    "return-line",
+    "scan-line",
+    "obstacle-zone",
+    "mission-points",
+    "drone-point",
+  ];
+  for (const source of sources) {
+    if (!map.getSource(source)) {
+      map.addSource(source, emptyGeoJsonSource());
+    }
+  }
+
+  map.addLayer({
+    id: "facility-fill",
+    type: "fill",
+    source: "facility-zones",
+    paint: {
+      "fill-color": ["get", "color"],
+      "fill-opacity": ["get", "opacity"],
+    },
+  });
+  map.addLayer({
+    id: "facility-outline",
+    type: "line",
+    source: "facility-zones",
+    paint: {
+      "line-color": "#a9bbb5",
+      "line-width": 1,
+      "line-opacity": 0.55,
+    },
+  });
+  map.addLayer({
+    id: "service-road-casing",
+    type: "line",
+    source: "service-road",
+    paint: {
+      "line-color": "#f5f7f4",
+      "line-width": 24,
+      "line-opacity": 0.78,
+    },
+  });
+  map.addLayer({
+    id: "service-road-line",
+    type: "line",
+    source: "service-road",
+    paint: {
+      "line-color": "#b7c9c4",
+      "line-width": 2,
+      "line-dasharray": [3, 4],
+    },
+  });
+  map.addLayer({
+    id: "route-casing",
+    type: "line",
+    source: "route-line",
+    paint: {
+      "line-color": "#7f9997",
+      "line-width": 13,
+      "line-opacity": 0.35,
+    },
+  });
+  map.addLayer({
+    id: "route-line",
+    type: "line",
+    source: "route-line",
+    paint: {
+      "line-color": "#1d5d73",
+      "line-width": 5,
+      "line-opacity": 0.95,
+    },
+  });
+  map.addLayer({
+    id: "progress-line",
+    type: "line",
+    source: "progress-line",
+    paint: {
+      "line-color": "#39a06a",
+      "line-width": 8,
+      "line-opacity": 0.96,
+    },
+  });
+  map.addLayer({
+    id: "detour-line",
+    type: "line",
+    source: "detour-line",
+    paint: {
+      "line-color": "#bd741f",
+      "line-width": 5,
+      "line-dasharray": [3, 2],
+    },
+  });
+  map.addLayer({
+    id: "return-line",
+    type: "line",
+    source: "return-line",
+    paint: {
+      "line-color": "#b34534",
+      "line-width": 4,
+      "line-dasharray": [2, 2],
+      "line-opacity": 0.8,
+    },
+  });
+  map.addLayer({
+    id: "scan-line",
+    type: "line",
+    source: "scan-line",
+    paint: {
+      "line-color": "#ffffff",
+      "line-width": 2,
+      "line-opacity": 0.72,
+    },
+  });
+  map.addLayer({
+    id: "obstacle-zone",
+    type: "fill",
+    source: "obstacle-zone",
+    paint: {
+      "fill-color": "#b34534",
+      "fill-opacity": 0.2,
+    },
+  });
+  map.addLayer({
+    id: "obstacle-zone-outline",
+    type: "line",
+    source: "obstacle-zone",
+    paint: {
+      "line-color": "#b34534",
+      "line-width": 2,
+      "line-opacity": 0.75,
+    },
+  });
+  map.addLayer({
+    id: "mission-point-halo",
+    type: "circle",
+    source: "mission-points",
+    paint: {
+      "circle-radius": ["case", ["==", ["get", "kind"], "home"], 13, 11],
+      "circle-color": "#fbfcfa",
+      "circle-stroke-color": "#15222b",
+      "circle-stroke-width": 3,
+      "circle-opacity": 0.98,
+      "circle-pitch-alignment": "map",
+    },
+  });
+  map.addLayer({
+    id: "mission-point-core",
+    type: "circle",
+    source: "mission-points",
+    paint: {
+      "circle-radius": 4,
+      "circle-color": "#1d5d73",
+      "circle-pitch-alignment": "map",
+    },
+  });
+  map.addLayer({
+    id: "drone-range",
+    type: "circle",
+    source: "drone-point",
+    paint: {
+      "circle-radius": 24,
+      "circle-color": "rgba(29, 93, 115, 0.14)",
+      "circle-stroke-color": "rgba(29, 93, 115, 0.22)",
+      "circle-stroke-width": 1,
+      "circle-pitch-alignment": "map",
+    },
+  });
+  map.addLayer({
+    id: "drone-body",
+    type: "circle",
+    source: "drone-point",
+    paint: {
+      "circle-radius": 11,
+      "circle-color": "#10222b",
+      "circle-stroke-color": "#e8f1ee",
+      "circle-stroke-width": 4,
+      "circle-pitch-alignment": "map",
+    },
+  });
+}
+
+function refreshMissionMapScenario(scenario) {
+  if (!state.mapReady) return;
+  clearMissionMarkers();
+  state.mapScenarioId = scenario.scenario_id;
+
+  const missionPoints = [scenario.start, ...scenario.waypoints];
+  setSourceData("mission-points", featureCollection(buildMissionPointFeatures(scenario)));
+  setSourceData("drone-point", featureCollection([pointFeature(lngLat(scenario.start), { kind: "drone" })]));
+  state.waypointMarkers = missionPoints.map((point, index) =>
+    new window.maplibregl.Marker({
+      element: createWaypointElement(index === 0 ? "H" : String(index), index === 0 ? "Home" : `WP${index}`),
+      anchor: "bottom",
+      offset: [0, -18],
+    })
+      .setLngLat([point.lon, point.lat])
+      .addTo(state.map),
+  );
+
+  if (scenario.obstacles[0]) {
+    state.obstacleMarker = new window.maplibregl.Marker({
+      element: createObstacleElement(),
+      anchor: "bottom-left",
+      offset: [12, -10],
+    })
+      .setLngLat([scenario.obstacles[0].location.lon, scenario.obstacles[0].location.lat])
+      .addTo(state.map);
+  }
+
+  setSourceData("facility-zones", featureCollection(buildFacilityFeatures(scenario)));
+  setSourceData("service-road", lineFeature(serviceRoadCoordinates(scenario)));
+  setSourceData("route-line", lineFeature(routeCoordinates(scenario)));
+  setSourceData("detour-line", lineFeature(detourCoordinates(scenario)));
+  setSourceData("obstacle-zone", featureCollection(buildObstacleFeatures(scenario)));
+  fitMissionBounds(scenario);
+}
+
+function updateMissionMap(scenario, decision, progress) {
+  if (!state.mapReady || state.mapScenarioId !== scenario.scenario_id) return;
+  const animation = animationCoordinates(scenario);
+  const current = pointAlongGeoPath(animation, progress);
+  setSourceData("drone-point", featureCollection([pointFeature(current, { kind: "drone" })]));
+  setSourceData("progress-line", lineFeature(partialGeoPath(animation, progress)));
+  setSourceData("return-line", lineFeature([current, [scenario.start.lon, scenario.start.lat]]));
+  setSourceData("scan-line", lineFeature(scanLineCoordinates(scenario, progress)));
+  if (state.mapStatusNode) {
+    const action = decision?.recommended_action ?? (progress > 0 && progress < 1 ? "assessing_route" : scenario.expected_action);
+    state.mapStatusNode.innerHTML = `
+      <span>Route update</span>
+      <strong>${escapeHtml(formatAction(action))}</strong>
+    `;
+  }
+}
+
+function setSourceData(id, data) {
+  const source = state.map?.getSource(id);
+  if (source) source.setData(data);
+}
+
+function emptyGeoJsonSource() {
+  return {
+    type: "geojson",
+    data: featureCollection([]),
+  };
+}
+
+function clearMissionMarkers() {
+  for (const marker of state.waypointMarkers) marker.remove();
+  state.waypointMarkers = [];
+  state.obstacleMarker?.remove();
+  state.obstacleMarker = null;
+}
+
+function createWaypointElement(code, label) {
+  const node = document.createElement("div");
+  node.className = "waypoint-map-marker";
+  node.innerHTML = `<strong>${escapeHtml(code)}</strong><span>${escapeHtml(label)}</span>`;
+  return node;
+}
+
+function createObstacleElement() {
+  const node = document.createElement("div");
+  node.className = "obstacle-map-marker";
+  node.textContent = "Restricted Area";
+  return node;
+}
+
+function fitMissionBounds(scenario) {
+  const bounds = new window.maplibregl.LngLatBounds();
+  for (const coord of [...routeCoordinates(scenario), ...animationCoordinates(scenario), ...detourCoordinates(scenario)]) {
+    bounds.extend(coord);
+  }
+  state.map.fitBounds(bounds, {
+    padding: { top: 52, right: 62, bottom: 52, left: 62 },
+    duration: 0,
+    bearing: 0,
+    pitch: 0,
+  });
+}
+
+function routeCoordinates(scenario) {
+  return [scenario.start, ...scenario.waypoints].map(lngLat);
+}
+
+function animationCoordinates(scenario) {
+  const route = routeCoordinates(scenario);
+  const restrictedArea = scenario.obstacles[0];
+  if (restrictedArea && route.length >= 3) {
+    return [...route.slice(0, 3), lngLat(restrictedArea.location)];
+  }
+  return route;
+}
+
+function detourCoordinates(scenario) {
+  const obstacle = scenario.obstacles[0];
+  if (!obstacle || scenario.waypoints.length < 3) return [];
+  const wp2 = scenario.waypoints[1];
+  const wp3 = scenario.waypoints[2];
+  return [
+    lngLat(wp2),
+    offsetCoord(obstacle.location, 72, -42),
+    offsetCoord(obstacle.location, 126, 18),
+    lngLat(wp3),
+  ];
+}
+
+function serviceRoadCoordinates(scenario) {
+  const route = routeCoordinates(scenario);
+  return route.map(([lon, lat], index) => offsetCoord({ lon, lat }, 18 + index * 7, -32 + index * 5));
+}
+
+function scanLineCoordinates(scenario, progress) {
+  if (progress <= 0 || progress >= 1) return [];
+  const route = routeCoordinates(scenario);
+  const start = route[0];
+  const end = route[route.length - 1];
+  const lon = start[0] + (end[0] - start[0]) * progress;
+  const lat = start[1] + (end[1] - start[1]) * progress;
+  return [offsetCoord({ lon, lat }, -38, -88), offsetCoord({ lon, lat }, 38, 88)];
+}
+
+function buildMissionPointFeatures(scenario) {
+  return [scenario.start, ...scenario.waypoints].map((point, index) =>
+    pointFeature(lngLat(point), {
+      kind: index === 0 ? "home" : "waypoint",
+      label: index === 0 ? "Home" : `WP${index}`,
+    }),
+  );
+}
+
+function buildFacilityFeatures(scenario) {
+  const center = scenario.waypoints[1] ?? scenario.start;
+  return [
+    polygonFeature(rectAround(center, -190, 125, 122, 70), { color: "#bdd5d4", opacity: 0.72 }),
+    polygonFeature(rectAround(center, 72, -132, 140, 64), { color: "#c8d8bf", opacity: 0.82 }),
+    polygonFeature(rectAround(center, -88, -22, 94, 56), { color: "#cfd8cf", opacity: 0.78 }),
+    polygonFeature(rectAround(center, 206, 96, 126, 72), { color: "#b9c8c2", opacity: 0.72 }),
+  ];
+}
+
+function buildObstacleFeatures(scenario) {
+  const obstacle = scenario.obstacles[0];
+  if (!obstacle) return [];
+  return [polygonFeature(rectAround(obstacle.location, 0, 0, 72, 72), { id: obstacle.id })];
+}
+
+function rectAround(center, eastM, northM, widthM, heightM) {
+  const point = offsetCoord(center, eastM, northM);
+  return [
+    offsetCoord({ lon: point[0], lat: point[1] }, -widthM / 2, -heightM / 2),
+    offsetCoord({ lon: point[0], lat: point[1] }, widthM / 2, -heightM / 2),
+    offsetCoord({ lon: point[0], lat: point[1] }, widthM / 2, heightM / 2),
+    offsetCoord({ lon: point[0], lat: point[1] }, -widthM / 2, heightM / 2),
+    offsetCoord({ lon: point[0], lat: point[1] }, -widthM / 2, -heightM / 2),
+  ];
+}
+
+function offsetCoord(point, eastM, northM) {
+  const lat = point.lat + northM / 111_320;
+  const lon = point.lon + eastM / (111_320 * Math.cos((point.lat * Math.PI) / 180));
+  return [lon, lat];
+}
+
+function lngLat(point) {
+  return [point.lon, point.lat];
+}
+
+function featureCollection(features) {
+  return { type: "FeatureCollection", features };
+}
+
+function lineFeature(coordinates, properties = {}) {
+  if (coordinates.length < 2) return featureCollection([]);
+  return {
+    type: "Feature",
+    properties,
+    geometry: { type: "LineString", coordinates },
+  };
+}
+
+function pointFeature(coordinates, properties = {}) {
+  return {
+    type: "Feature",
+    properties,
+    geometry: { type: "Point", coordinates },
+  };
+}
+
+function polygonFeature(coordinates, properties = {}) {
+  return {
+    type: "Feature",
+    properties,
+    geometry: { type: "Polygon", coordinates: [coordinates] },
+  };
+}
+
+function partialGeoPath(points, progress) {
+  if (points.length < 2) return points;
+  const total = geoPathLength(points);
+  const target = total * clamp(progress, 0, 1);
+  const partial = [points[0]];
+  let walked = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const segment = geoDistance(start, end);
+    if (walked + segment >= target) {
+      const ratio = segment ? (target - walked) / segment : 0;
+      partial.push(lerpCoord(start, end, ratio));
+      return partial;
+    }
+    partial.push(end);
+    walked += segment;
+  }
+  return partial;
+}
+
+function pointAlongGeoPath(points, progress) {
+  return partialGeoPath(points, progress).at(-1) ?? points[0];
+}
+
+function geoPathLength(points) {
+  return points.slice(1).reduce((sum, point, index) => sum + geoDistance(points[index], point), 0);
+}
+
+function geoDistance(a, b) {
+  return Math.hypot(b[0] - a[0], b[1] - a[1]);
+}
+
+function lerpCoord(a, b, ratio) {
+  return [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio];
 }
 
 function buildMapSvg(scenario, decision, progress) {
@@ -201,7 +711,7 @@ function buildMapSvg(scenario, decision, progress) {
           ? `<g>
               <rect x="${model.obstacle.x - 22}" y="${model.obstacle.y - 34}" width="68" height="48" rx="6" fill="#b34534"></rect>
               <path d="M ${model.obstacle.x - 10} ${model.obstacle.y + 20} L ${model.obstacle.x + 32} ${model.obstacle.y - 22} M ${model.obstacle.x - 10} ${model.obstacle.y - 22} L ${model.obstacle.x + 32} ${model.obstacle.y + 20}" stroke="#fff" stroke-width="5" stroke-linecap="round"></path>
-              <text x="${model.obstacle.x - 17}" y="${model.obstacle.y - 44}" font-size="12" font-weight="900" fill="#8b3025">OBSTACLE</text>
+              <text x="${model.obstacle.x - 36}" y="${model.obstacle.y - 44}" font-size="12" font-weight="900" fill="#8b3025">RESTRICTED AREA</text>
             </g>`
           : ""
       }
@@ -230,10 +740,7 @@ function buildMapModel(scenario, progress) {
   for (const row of scenario.telemetry ?? []) geoPoints.push(row);
   const projected = projector(geoPoints);
   const route = [scenario.start, ...scenario.waypoints].map(projected);
-  const animationGeo =
-    scenario.telemetry?.length > 1
-      ? scenario.telemetry.map((row) => ({ lat: row.lat, lon: row.lon }))
-      : [scenario.start, ...scenario.waypoints];
+  const animationGeo = animationCoordinates(scenario).map(([lon, lat]) => ({ lon, lat }));
   const animationPoints = animationGeo.map(projected);
   const current = pointAlongPath(animationPoints, progress);
   return {
@@ -331,11 +838,11 @@ function resetDecision() {
 function renderDecision(decision) {
   els.decisionConfidence.textContent = `${Math.round(decision.confidence * 100)}%`;
   els.decisionAction.textContent = formatAction(decision.recommended_action);
-  els.decisionMessage.textContent = decision.operator_message;
+  els.decisionMessage.textContent = displayCopy(decision.operator_message);
   els.decisionReasons.innerHTML = "";
   for (const reason of decision.why) {
     const row = document.createElement("p");
-    row.textContent = reason;
+    row.textContent = displayCopy(reason);
     els.decisionReasons.append(row);
   }
 }
@@ -436,7 +943,7 @@ function missionPhase(progress, scenario) {
   if (progress < 0.18) return "Departing start";
   if (progress < 0.42) return "Waypoint 1";
   if (progress < 0.66) return "Waypoint 2";
-  if (progress < 0.82) return scenario?.obstacles?.length ? "Obstacle scan" : "Final leg";
+  if (progress < 0.82) return scenario?.obstacles?.length ? "Restricted area scan" : "Final leg";
   if (progress < 0.96) return "Reserve check";
   return "Decision ready";
 }
@@ -511,7 +1018,16 @@ function titleCase(value) {
 
 function formatAction(value) {
   if (!value) return "--";
+  if (value === "detour_obstacle") return "Detour Restricted Area";
   return titleCase(value);
+}
+
+function displayCopy(value) {
+  return String(value)
+    .replaceAll(/\bobstacles\b/g, "restricted areas")
+    .replaceAll(/\bObstacles\b/g, "Restricted Areas")
+    .replaceAll(/\bobstacle\b/g, "restricted area")
+    .replaceAll(/\bObstacle\b/g, "Restricted Area");
 }
 
 function escapeHtml(value) {
