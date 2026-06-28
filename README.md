@@ -72,4 +72,32 @@ The app should produce:
 
 ## Current Status
 
-This repository currently contains the planning and implementation scaffold. Start with the kickoff checklist in [Hackathon plan](./docs/HACKATHON_PLAN.md), especially the Cerebras API validation step.
+The repository now contains a runnable hackathon prototype:
+
+- predefined safe and dangerous scenarios
+- synthetic telemetry CSVs and PNG keyframes
+- replay cache seeds for Vision, Telemetry, and Commander agents
+- stdlib Python API and orchestrator
+- Cerebras Chat Completions wrapper targeting `gemma-4-31b`
+- static browser mission-control UI
+- focused tests for loaders, telemetry validation, reachability, cache replay, image encoding, and orchestration
+
+## Run Locally
+
+```bash
+python scripts/generate_sample_assets.py
+PYTHONPATH=src python -m droneguard_multiverse.api.routes --host 127.0.0.1 --port 8000
+```
+
+Open <http://127.0.0.1:8000>. Replay mode works without credentials. Live and refresh modes require:
+
+```bash
+export CEREBRAS_API_KEY="..."
+export DRONEGUARD_MODEL="gemma-4-31b"
+```
+
+## Test
+
+```bash
+pytest
+```

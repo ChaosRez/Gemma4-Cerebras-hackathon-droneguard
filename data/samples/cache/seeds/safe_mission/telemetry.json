@@ -1,0 +1,41 @@
+{
+  "cache_key": "seed:safe_mission:telemetry",
+  "scenario_id": "safe_mission",
+  "agent": "telemetry",
+  "model": "gemma-4-31b",
+  "prompt_version": "v1",
+  "reasoning_effort": null,
+  "mode": "live",
+  "cache_hit": false,
+  "request": {
+    "model": "gemma-4-31b",
+    "messages": [{"role": "user", "content": "Summarize safe mission telemetry."}]
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "{\"agent\":\"telemetry\",\"mission_reachability\":{\"can_complete_final_waypoint_and_return\":true,\"estimated_remaining_range_m\":1280.0,\"required_range_with_detour_m\":570.0,\"reserve_after_return_m\":710.0,\"safety_buffer_m\":120.0},\"risk_flags\":[],\"summary\":{\"min_battery_pct\":68.0,\"max_speed_mps\":6.4,\"min_link_quality_pct\":89.0}}"
+        }
+      }
+    ]
+  },
+  "normalized_output": {
+    "agent": "telemetry",
+    "mission_reachability": {
+      "can_complete_final_waypoint_and_return": true,
+      "estimated_remaining_range_m": 1280.0,
+      "required_range_with_detour_m": 570.0,
+      "reserve_after_return_m": 710.0,
+      "safety_buffer_m": 120.0
+    },
+    "risk_flags": [],
+    "summary": {
+      "min_battery_pct": 68.0,
+      "max_speed_mps": 6.4,
+      "min_link_quality_pct": 89.0
+    }
+  },
+  "response_time_ms": 534,
+  "created_at": "2026-06-28T10:00:04Z"
+}

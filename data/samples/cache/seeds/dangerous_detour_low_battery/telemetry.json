@@ -1,0 +1,58 @@
+{
+  "cache_key": "seed:dangerous_detour_low_battery:telemetry",
+  "scenario_id": "dangerous_detour_low_battery",
+  "agent": "telemetry",
+  "model": "gemma-4-31b",
+  "prompt_version": "v1",
+  "reasoning_effort": null,
+  "mode": "live",
+  "cache_hit": false,
+  "request": {
+    "model": "gemma-4-31b",
+    "messages": [{"role": "user", "content": "Summarize dangerous mission telemetry."}]
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "{\"agent\":\"telemetry\",\"mission_reachability\":{\"can_complete_final_waypoint_and_return\":false,\"estimated_remaining_range_m\":460.0,\"required_range_with_detour_m\":690.0,\"reserve_after_return_m\":-230.0,\"safety_buffer_m\":120.0},\"risk_flags\":[{\"type\":\"insufficient_battery_for_detour_and_return\",\"severity\":\"high\",\"timestamp\":\"2026-06-28T10:00:08Z\",\"observed_value\":-230.0,\"threshold\":120.0,\"evidence\":\"Remaining range cannot cover obstacle detour, final waypoint, return-to-start path, and reserve buffer.\"},{\"type\":\"degraded_link_quality\",\"severity\":\"medium\",\"timestamp\":\"2026-06-28T10:00:08Z\",\"observed_value\":41.0,\"threshold\":50.0,\"evidence\":\"Radio link quality dipped below the demo safety threshold.\"}],\"summary\":{\"min_battery_pct\":31.0,\"max_speed_mps\":9.8,\"min_link_quality_pct\":41.0}}"
+        }
+      }
+    ]
+  },
+  "normalized_output": {
+    "agent": "telemetry",
+    "mission_reachability": {
+      "can_complete_final_waypoint_and_return": false,
+      "estimated_remaining_range_m": 460.0,
+      "required_range_with_detour_m": 690.0,
+      "reserve_after_return_m": -230.0,
+      "safety_buffer_m": 120.0
+    },
+    "risk_flags": [
+      {
+        "type": "insufficient_battery_for_detour_and_return",
+        "severity": "high",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "observed_value": -230.0,
+        "threshold": 120.0,
+        "evidence": "Remaining range cannot cover obstacle detour, final waypoint, return-to-start path, and reserve buffer."
+      },
+      {
+        "type": "degraded_link_quality",
+        "severity": "medium",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "observed_value": 41.0,
+        "threshold": 50.0,
+        "evidence": "Radio link quality dipped below the demo safety threshold."
+      }
+    ],
+    "summary": {
+      "min_battery_pct": 31.0,
+      "max_speed_mps": 9.8,
+      "min_link_quality_pct": 41.0
+    }
+  },
+  "response_time_ms": 663,
+  "created_at": "2026-06-28T10:00:04Z"
+}

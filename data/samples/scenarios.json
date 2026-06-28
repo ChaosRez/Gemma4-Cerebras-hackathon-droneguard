@@ -1,0 +1,116 @@
+[
+  {
+    "scenario_id": "safe_mission",
+    "label": "Safe mission: clear inspection corridor",
+    "risk_label": "low",
+    "expected_action": "continue_mission",
+    "mission_goal": "Inspect all mission waypoints and return to start safely.",
+    "start": {"lat": 37.7749, "lon": -122.4194},
+    "waypoints": [
+      {"id": "wp_1", "lat": 37.7752, "lon": -122.4190, "label": "North fence line"},
+      {"id": "wp_2", "lat": 37.7756, "lon": -122.4185, "label": "Equipment yard"},
+      {"id": "wp_3", "lat": 37.7759, "lon": -122.4181, "label": "Final roof edge"}
+    ],
+    "obstacles": [],
+    "assets": {
+      "frames_dir": "data/samples/safe/frames",
+      "telemetry_csv": "data/samples/safe/telemetry.csv"
+    },
+    "route_metrics": {
+      "current_waypoint_id": "wp_2",
+      "remaining_mission_distance_m": 570.0,
+      "distance_to_final_waypoint_m": 310.0,
+      "return_to_start_distance_m": 260.0,
+      "return_after_final_m": 260.0,
+      "detour_distance_m": 0.0,
+      "safety_buffer_m": 120.0
+    },
+    "frame_metadata": [
+      {
+        "frame_id": "frame_001",
+        "timestamp": "2026-06-28T10:00:01Z",
+        "source_path": "data/samples/safe/frames/frame_001.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      },
+      {
+        "frame_id": "frame_002",
+        "timestamp": "2026-06-28T10:00:04Z",
+        "source_path": "data/samples/safe/frames/frame_002.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      },
+      {
+        "frame_id": "frame_003",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "source_path": "data/samples/safe/frames/frame_003.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      }
+    ]
+  },
+  {
+    "scenario_id": "dangerous_detour_low_battery",
+    "label": "Dangerous: detour makes final waypoint unsafe",
+    "risk_label": "high",
+    "expected_action": "return_to_start",
+    "mission_goal": "Inspect all mission waypoints and return to start safely.",
+    "start": {"lat": 37.7749, "lon": -122.4194},
+    "waypoints": [
+      {"id": "wp_1", "lat": 37.7751, "lon": -122.4189, "label": "Inspect north edge"},
+      {"id": "wp_2", "lat": 37.7756, "lon": -122.4183, "label": "Inspect equipment yard"},
+      {"id": "wp_3", "lat": 37.7762, "lon": -122.4179, "label": "Final inspection point"}
+    ],
+    "obstacles": [
+      {
+        "id": "obs_1",
+        "type": "temporary_crane",
+        "location": {"lat": 37.7757, "lon": -122.4182},
+        "requires_detour_m": 180.0,
+        "first_visible_frame_id": "frame_003"
+      }
+    ],
+    "assets": {
+      "frames_dir": "data/samples/dangerous/frames",
+      "telemetry_csv": "data/samples/dangerous/telemetry.csv"
+    },
+    "route_metrics": {
+      "current_waypoint_id": "wp_2",
+      "remaining_mission_distance_m": 510.0,
+      "distance_to_final_waypoint_m": 190.0,
+      "return_to_start_distance_m": 320.0,
+      "return_after_final_m": 320.0,
+      "detour_distance_m": 180.0,
+      "safety_buffer_m": 120.0
+    },
+    "frame_metadata": [
+      {
+        "frame_id": "frame_001",
+        "timestamp": "2026-06-28T10:00:01Z",
+        "source_path": "data/samples/dangerous/frames/frame_001.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      },
+      {
+        "frame_id": "frame_002",
+        "timestamp": "2026-06-28T10:00:04Z",
+        "source_path": "data/samples/dangerous/frames/frame_002.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      },
+      {
+        "frame_id": "frame_003",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "source_path": "data/samples/dangerous/frames/frame_003.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      }
+    ]
+  }
+]

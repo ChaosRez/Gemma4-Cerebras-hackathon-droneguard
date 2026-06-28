@@ -1,0 +1,43 @@
+{
+  "cache_key": "seed:safe_mission:commander",
+  "scenario_id": "safe_mission",
+  "agent": "commander",
+  "model": "gemma-4-31b",
+  "prompt_version": "v1",
+  "reasoning_effort": "medium",
+  "mode": "live",
+  "cache_hit": false,
+  "request": {
+    "model": "gemma-4-31b",
+    "reasoning_effort": "medium",
+    "messages": [{"role": "user", "content": "Choose safe mission operator action."}]
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "{\"agent\":\"commander\",\"recommended_action\":\"continue_mission\",\"confidence\":0.81,\"operator_message\":\"Continue the mission. Current telemetry preserves the return reserve.\",\"why\":[\"No high-severity visual hazard is active in sampled frames.\",\"Telemetry estimates 1280 meters of remaining range.\",\"The final waypoint and return path require 570 meters before reserve.\"],\"rejected_actions\":[{\"action\":\"return_to_start\",\"reason\":\"Telemetry preserves reserve, so aborting now is unnecessary.\"},{\"action\":\"hold_position\",\"reason\":\"Holding does not improve mission safety in the current state.\"},{\"action\":\"detour_obstacle\",\"reason\":\"No active obstacle requires a detour.\"}],\"evidence_refs\":[\"telemetry.latest\"]}"
+        }
+      }
+    ]
+  },
+  "normalized_output": {
+    "agent": "commander",
+    "recommended_action": "continue_mission",
+    "confidence": 0.81,
+    "operator_message": "Continue the mission. Current telemetry preserves the return reserve.",
+    "why": [
+      "No high-severity visual hazard is active in sampled frames.",
+      "Telemetry estimates 1280 meters of remaining range.",
+      "The final waypoint and return path require 570 meters before reserve."
+    ],
+    "rejected_actions": [
+      {"action": "return_to_start", "reason": "Telemetry preserves reserve, so aborting now is unnecessary."},
+      {"action": "hold_position", "reason": "Holding does not improve mission safety in the current state."},
+      {"action": "detour_obstacle", "reason": "No active obstacle requires a detour."}
+    ],
+    "evidence_refs": ["telemetry.latest"]
+  },
+  "response_time_ms": 841,
+  "created_at": "2026-06-28T10:00:05Z"
+}

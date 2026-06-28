@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from droneguard_multiverse.schemas.agents import ACTIONS
+from droneguard_multiverse.schemas.scenario import Scenario
+from droneguard_multiverse.schemas.telemetry import TelemetryRow
+
+
+PROMPT_VERSION = "v1"
+
+
+def compact_json(payload: Any) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def vision_prompt(scenario: Scenario) -> str:
+    frame_ids = [frame.frame_id for frame in scenario.frame_metadata[:5]]
+    return (
+        "You are the DroneGuard Vision Agent. Analyze the provided drone keyframes for safety hazards. "
+        "Return compact JSON only with keys agent, hazards, route_observations, uncertainties. "
+        f"Scenario: {scenario.label}. Mission goal: {scenario.mission_goal}. "
+        f"Frame IDs in order: {', '.join(frame_ids)}."
+    )
+
+
+def telemetry_prompt(scenario: Scenario, rows: list[TelemetryRow], reachability: dict[str, Any]) -> str:
+    sample = [row.to_dict() for row in rows[-4:]]
+    return (
+        "You are the DroneGuard Telemetry Agent. Summarize battery, link, speed, and reachability risks. "
+        "Return compact JSON only matching the telemetry agent contract. "
+        f"Scenario: {scenario.label}. Reachability: {compact_json(reachability)}. "
+        f"Recent telemetry rows: {compact_json(sample)}."
+    )
+
+
+def commander_prompt(
+    scenario: Scenario,
+    decision_context: dict[str, Any],
+    vision_output: dict[str, Any],
+    telemetry_output: dict[str, Any],
+) -> str:
+    return (
+        "You are the DroneGuard Commander Agent. Choose the safest operator action from this enum: "
+        f"{', '.join(ACTIONS)}. Return compact JSON only matching the commander contract. "
+        "If range cannot cover the detour, final waypoint, return path, and safety buffer, choose return_to_start. "
+        f"Scenario: {scenario.label}. Decision context: {compact_json(decision_context)}. "
+        f"Vision output: {compact_json(vision_output)}. Telemetry output: {compact_json(telemetry_output)}."
+    )

@@ -10,3 +10,9 @@ Prioritize tests that protect the demo path:
 - agent output schema validation
 - commander fallback behavior
 - end-to-end run with sample data
+
+Run from the repository root:
+
+```bash
+pytest
+```

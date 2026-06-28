@@ -1,0 +1,43 @@
+{
+  "cache_key": "seed:dangerous_detour_low_battery:commander",
+  "scenario_id": "dangerous_detour_low_battery",
+  "agent": "commander",
+  "model": "gemma-4-31b",
+  "prompt_version": "v1",
+  "reasoning_effort": "medium",
+  "mode": "live",
+  "cache_hit": false,
+  "request": {
+    "model": "gemma-4-31b",
+    "reasoning_effort": "medium",
+    "messages": [{"role": "user", "content": "Choose dangerous mission operator action."}]
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "{\"agent\":\"commander\",\"recommended_action\":\"return_to_start\",\"confidence\":0.86,\"operator_message\":\"Return to start now. The detour and final waypoint exceed the safe remaining range.\",\"why\":[\"The obstacle requires a detour before reaching the final waypoint.\",\"Telemetry estimates 460 meters of remaining range.\",\"The detour, final waypoint, and return path require 690 meters before the 120 meter reserve buffer.\"],\"rejected_actions\":[{\"action\":\"continue_mission\",\"reason\":\"Insufficient range after accounting for obstacle detour and return-to-start buffer.\"},{\"action\":\"detour_obstacle\",\"reason\":\"The detour is safe only if followed by return, not final waypoint completion.\"},{\"action\":\"hold_position\",\"reason\":\"Holding does not improve battery reserve or mission reachability.\"}],\"evidence_refs\":[\"vision.frame_003\",\"telemetry.2026-06-28T100008Z\"]}"
+        }
+      }
+    ]
+  },
+  "normalized_output": {
+    "agent": "commander",
+    "recommended_action": "return_to_start",
+    "confidence": 0.86,
+    "operator_message": "Return to start now. The detour and final waypoint exceed the safe remaining range.",
+    "why": [
+      "The obstacle requires a detour before reaching the final waypoint.",
+      "Telemetry estimates 460 meters of remaining range.",
+      "The detour, final waypoint, and return path require 690 meters before the 120 meter reserve buffer."
+    ],
+    "rejected_actions": [
+      {"action": "continue_mission", "reason": "Insufficient range after accounting for obstacle detour and return-to-start buffer."},
+      {"action": "detour_obstacle", "reason": "The detour is safe only if followed by return, not final waypoint completion."},
+      {"action": "hold_position", "reason": "Holding does not improve battery reserve or mission reachability."}
+    ],
+    "evidence_refs": ["vision.frame_003", "telemetry.2026-06-28T100008Z"]
+  },
+  "response_time_ms": 918,
+  "created_at": "2026-06-28T10:00:05Z"
+}

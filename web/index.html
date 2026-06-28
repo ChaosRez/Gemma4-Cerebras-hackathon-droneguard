@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DroneGuard Multiverse</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">DroneGuard Multiverse</p>
+          <h1>Mission Control</h1>
+        </div>
+        <div class="run-controls">
+          <label class="mode-toggle">
+            <span>Mode</span>
+            <select id="modeSelect">
+              <option value="replay">Replay</option>
+              <option value="live">Live Cerebras</option>
+              <option value="refresh">Refresh Cache</option>
+            </select>
+          </label>
+          <button id="runButton" type="button">Run Agents</button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="scenario-panel" aria-label="Scenarios">
+          <div class="panel-heading">
+            <h2>Scenarios</h2>
+            <span id="scenarioCount">0</span>
+          </div>
+          <div id="scenarioList" class="scenario-list"></div>
+        </aside>
+
+        <section class="mission-panel">
+          <div class="mission-header">
+            <div>
+              <p id="missionRisk" class="status-pill">No scenario</p>
+              <h2 id="missionTitle">Select a scenario</h2>
+            </div>
+            <div class="metric-row">
+              <div>
+                <span>Battery</span>
+                <strong id="batteryMetric">--</strong>
+              </div>
+              <div>
+                <span>Expected</span>
+                <strong id="expectedMetric">--</strong>
+              </div>
+              <div>
+                <span>Run</span>
+                <strong id="runMetric">--</strong>
+              </div>
+            </div>
+          </div>
+          <div id="mapCanvas" class="map-canvas"></div>
+          <div id="frameStrip" class="frame-strip"></div>
+        </section>
+
+        <section class="right-rail">
+          <div class="decision-panel">
+            <div class="panel-heading">
+              <h2>Commander</h2>
+              <span id="decisionConfidence">--</span>
+            </div>
+            <p id="decisionAction" class="decision-action">Waiting</p>
+            <p id="decisionMessage" class="decision-message">Run the agents to produce a recommendation.</p>
+            <div id="decisionReasons" class="reason-list"></div>
+          </div>
+
+          <div class="agents-panel">
+            <div class="panel-heading">
+              <h2>Agents</h2>
+              <span id="totalLatency">--</span>
+            </div>
+            <div id="agentTimeline" class="agent-timeline"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="observability-panel">
+        <div class="panel-heading">
+          <h2>Observability</h2>
+          <span id="traceSummary">No run</span>
+        </div>
+        <div id="traceEvents" class="trace-events"></div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
