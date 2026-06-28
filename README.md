@@ -1,36 +1,33 @@
 # DroneGuard Multiverse
 
-DroneGuard Multiverse is a hackathon MVP for multimodal drone safety decision support. It uses drone video keyframes, telemetry, and mission intent to coordinate specialized agents that compare multiple possible next actions and recommend the safest one.
+DroneGuard Multiverse is a hackathon MVP for multimodal drone safety decision support. It uses predefined drone mission scenarios, video keyframes, telemetry, and mission state to help an operator decide whether the drone should continue, return to start, hold position, or detour around an obstacle.
 
 The project is intentionally scoped as a simulator and operator assistant. It does not control a real drone.
 
 ## Hackathon Thesis
 
-Fast inference changes the agent pattern for physical-world systems. Instead of asking one model for one slow answer, DroneGuard Multiverse runs a small team of agents over several possible futures:
+Fast inference changes the agent pattern for physical-world systems. Instead of asking one model for one slow answer, DroneGuard Multiverse runs a focused set of agents over a simulated mission state:
 
 - vision analysis over extracted video frames
 - telemetry anomaly checks over flight logs
-- world-state fusion across image, telemetry, and mission context
-- parallel future simulation for route options
-- commander selection with an evidence-backed recommendation
-- incident-style reporting for judges and operators
+- commander reasoning over mission progress, battery reserve, obstacles, and return-to-start feasibility
+- visible logs, cached responses, and replayable response times so the demo can run live or offline
 
 ## MVP Outcome
 
-The demo should let a user provide:
+The demo should let a user select one of two predefined scenarios:
 
-- 5 to 10 drone frames, or a short video that is converted to keyframes
-- telemetry CSV with time, position, altitude, speed, battery, and link quality
-- a short mission goal, such as "inspect area and return safely"
+- safe mission: the drone can complete its multi-point mission and return with sufficient reserve
+- dangerous mission: an obstacle detour and battery drain make the final mission point unsafe, so the Commander recommends returning to start
 
 The app should produce:
 
-- agent timeline
+- interactive web mission view
+- agent timeline with raw Gemma-4 responses
 - risk score
-- scenario comparison table
-- recommended action
-- concise mission safety report
-- latency metrics showing how many futures were evaluated
+- commander action: continue mission, return to start, hold position, or detour obstacle
+- concise decision report
+- latency metrics from live Cerebras calls or cached replay
 
 ## Documentation
 
@@ -39,6 +36,7 @@ The app should produce:
 - [Architecture](./docs/ARCHITECTURE.md)
 - [Cerebras integration notes](./docs/CEREBRAS_INTEGRATION.md)
 - [Data contracts](./docs/DATA_CONTRACTS.md)
+- [Web app and observability](./docs/WEB_APP_AND_OBSERVABILITY.md)
 - [Demo runbook](./docs/DEMO_RUNBOOK.md)
 
 ## Proposed Repository Structure
@@ -49,23 +47,28 @@ The app should produce:
 |-- docs/                            # project plan and technical docs
 |-- scripts/                         # one-off demo and asset preparation scripts
 |-- src/droneguard_multiverse/
-|   |-- agents/                      # vision, telemetry, world-state, scenario, commander, report agents
+|   |-- agents/                      # vision, telemetry, and commander agents
+|   |-- api/                         # lightweight backend endpoints for the web app
+|   |-- cache/                       # Cerebras response cache and replay helpers
 |   |-- integrations/cerebras/       # Cerebras client, image formatting, request helpers
-|   |-- orchestration/               # agent graph and parallel execution flow
+|   |-- observability/               # trace events, run logs, and response timing
+|   |-- orchestration/               # demo run coordination
 |   |-- schemas/                     # typed data models and JSON schema definitions
 |   |-- simulation/                  # trajectory and future-option simulator
-|   `-- ui/                          # Streamlit MVP UI
+|   `-- ui/                          # backend-facing UI helpers, if needed
+|-- web/                             # proper browser-based demo application
 `-- tests/                           # schema, parser, simulator, and orchestration tests
 ```
 
 ## Build Defaults
 
-- Backend and orchestration: Python 3.12
-- MVP UI: Streamlit
+- Backend and orchestration: lightweight Python 3.12 API
+- MVP UI: proper browser-based app, preferably React or Next.js
 - API integration: Cerebras Chat Completions
 - Multimodal model target: `gemma-4-31b`
 - Video handling: extract keyframes, then send images
 - Agent outputs: structured JSON validated by local schemas
+- Demo mode: live Cerebras calls or cached replay with recorded response times
 
 ## Current Status
 

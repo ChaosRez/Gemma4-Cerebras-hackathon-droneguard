@@ -15,7 +15,7 @@ Use these official Cerebras Inference docs for this project:
 ## Project Model Target
 
 - Model ID: `gemma-4-31b`
-- Primary use: multimodal frame analysis and visual safety evidence
+- Primary use: multimodal frame analysis, telemetry summarization, and Commander reasoning
 - API surface: Chat Completions
 - Required secret: `CEREBRAS_API_KEY`
 
@@ -26,6 +26,16 @@ Important planning caveat:
 - The image-input guide also marks image inputs as private preview.
 
 Treat image access as a kickoff validation item. Do not wait until late in the hackathon to test it.
+
+## Agent Calls
+
+The MVP uses only three Cerebras-backed agents:
+
+- Vision Agent: image frames plus scenario context
+- Telemetry Agent: mission telemetry plus reachability estimates
+- Commander Agent: normalized decision context plus allowed action enum
+
+The backend should stay simple. It loads scenario data, calls or replays the three agents, validates structured outputs, and returns a result to the web app.
 
 ## Image Input Pattern
 
@@ -74,14 +84,51 @@ response = client.chat.completions.create(
 
 The current docs say `low`, `medium`, and `high` all enable reasoning for Gemma 4 31B, without graduated effort control. Use `medium` as the project default for decision-heavy steps and `none` or omitted reasoning for simple extraction steps.
 
+## Live, Cache, And Replay Modes
+
+Every Cerebras call should be stored so the demo can be replayed without calling the API again.
+
+Modes:
+
+- `live`: call Cerebras, store request, response, normalized output, and response time
+- `replay`: load the stored response and replay the recorded response time
+- `refresh`: force a new Cerebras call and overwrite or version the cached entry
+
+Cache key inputs:
+
+- scenario ID
+- agent name
+- prompt version
+- model ID
+- reasoning setting
+- image or telemetry input hash
+
+Cached payload:
+
+```json
+{
+  "cache_key": "dangerous:commander:v1:gemma-4-31b:abc123",
+  "scenario_id": "dangerous",
+  "agent": "commander",
+  "model": "gemma-4-31b",
+  "mode": "live",
+  "request": {},
+  "response": {},
+  "normalized_output": {},
+  "response_time_ms": 842,
+  "created_at": "2026-06-28T10:00:03Z"
+}
+```
+
+The web app should show whether each agent response came from live mode or replay mode.
+
 ## Tool Calling
 
-Use tool calling only where it helps the demo:
+Tool calling is not required for the MVP. Prefer deterministic backend functions for reachability, route distance, and battery reserve. Use tool calling only if it clearly improves the Cerebras story without increasing implementation risk.
 
-- `simulate_future(action, world_state)` for scenario deltas
-- optional `lookup_safety_rule(rule_id)` for static policy references
+Possible tool if used:
 
-The simplest MVP can call local Python simulator functions directly and then pass results into scenario agents. Tool calling is useful if you want to demonstrate model-directed tool use, but it should not be allowed to slow down core delivery.
+- `estimate_reachability(current_state, route_options)`
 
 If tool calling is used:
 
@@ -108,8 +155,9 @@ Run these checks before building the full app:
 - Image request with 3 to 5 frames succeeds.
 - `reasoning_effort="medium"` is accepted for `gemma-4-31b`.
 - A compact JSON response can be parsed.
-- Parallel scenario requests do not hit immediate rate limits.
-- Latency is good enough to show a visible speed story.
+- Response cache stores raw request, raw response, normalized output, and response time.
+- Replay mode can run the safe and dangerous scenarios without a Cerebras API call.
+- Latency is good enough to show a visible speed story when live mode is enabled.
 - Failure modes return usable errors in the UI.
 
 ## Environment Variables
@@ -120,4 +168,3 @@ export DRONEGUARD_MODEL="gemma-4-31b"
 ```
 
 Never commit `.env` files or API keys.
-

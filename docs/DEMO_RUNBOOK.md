@@ -2,7 +2,7 @@
 
 ## Demo Objective
 
-Show judges that DroneGuard Multiverse coordinates multimodal agents over a physical-world safety problem and uses fast inference to evaluate multiple futures.
+Show judges that DroneGuard Multiverse is a proper web-based mission control demo with transparent multimodal agents, cached Cerebras responses, and an auditable Commander decision.
 
 ## Demo Assets
 
@@ -12,12 +12,14 @@ Prepare two scenarios:
    - clear frames
    - stable telemetry
    - normal battery and link quality
-   - expected output: continue or slow monitoring
+   - multi-point route can be completed with return reserve
+   - expected output: continue mission
 
 2. Risky flight
    - visible hazard or constrained environment
-   - battery decline, high speed, GPS jump, or weak link quality
-   - expected output: slow down, reroute, or land
+   - obstacle forces a detour
+   - battery level and detour mean the drone cannot safely reach the final mission point and return
+   - expected output: return to start
 
 Required files per scenario:
 
@@ -27,68 +29,77 @@ data/samples/<scenario>/
 |   |-- frame_001.jpg
 |   |-- frame_002.jpg
 |   `-- frame_003.jpg
+|-- cache/
+|   |-- vision.json
+|   |-- telemetry.json
+|   `-- commander.json
+|-- scenario.json
 |-- telemetry.csv
 `-- mission.txt
 ```
 
 ## Five-Minute Demo Flow
 
-1. Open the app with the risky scenario selected.
-2. Show the mission goal and keyframes.
-3. Show the telemetry preview.
+1. Open the app with the dangerous scenario selected.
+2. Show the mission route, waypoints, obstacle, drone position, and battery reserve.
+3. Show the keyframes and telemetry preview.
 4. Run analysis.
 5. Narrate the agent timeline:
    - Vision Agent finds visual risks.
-   - Telemetry Agent flags flight anomalies.
-   - World-State Agent fuses the situation.
-   - Scenario Agents evaluate several futures in parallel.
-   - Commander Agent chooses the safest action.
-6. Show the scenario comparison table.
-7. Show the recommendation and final report.
-8. Point to timing metrics: number of agent calls, number of futures, total elapsed time.
-9. Switch briefly to the safe scenario to show the system is not hardcoded.
+   - Telemetry Agent flags the battery and reachability risk.
+   - Commander Agent chooses `return_to_start`.
+6. Open the observability panel and show:
+   - raw Gemma-4 response
+   - normalized JSON
+   - cache/live status
+   - response time
+   - decision trace
+7. Show the recommendation and final decision report.
+8. Switch briefly to the safe scenario to show `continue_mission`.
 
 ## 90-Second Pitch Script
 
-"DroneGuard Multiverse is a multimodal safety simulator for drone operations. It takes drone frames, telemetry, and a mission goal, then coordinates specialized agents to understand the current state and compare possible futures.
+"DroneGuard Multiverse is a web-based safety simulator for drone operations. The operator selects a predefined multi-point mission, watches the simulated drone progress through the route, and sees Vision, Telemetry, and Commander agents reason over frames and flight data.
 
-The important idea is that fast inference changes the design pattern. Instead of one chatbot answer, we can run a vision agent, a telemetry agent, a world-state agent, and multiple scenario agents in parallel. The commander agent then recommends the safest next action with evidence from both the frames and the flight log.
+In the dangerous scenario, an obstacle forces a detour and the battery reserve is no longer enough to reach the final waypoint and return. The Commander agent chooses return to start, and the UI shows the raw Gemma-4 responses, normalized outputs, timing, and decision evidence.
 
-This is scoped as operator decision support, not real drone control. The demo shows how a physical AI workflow can use Cerebras speed to reason over several possible futures quickly enough to stay inside the operational loop."
+This is scoped as operator decision support, not real drone control. The demo can run live against Cerebras or replay cached Cerebras responses with recorded response times, so judges can inspect both the agent reasoning and the system behavior reliably."
 
 ## Backup Demo Plan
 
 If live image input is unavailable:
 
 - use precomputed Vision Agent JSON for frame findings
-- run telemetry analysis live
-- run world-state, scenario, commander, and report agents live
+- run Telemetry and Commander from cached Cerebras responses
 - state clearly that image access is a preview dependency and the rest of the multimodal pipeline is ready
 
 If the API is slow or rate-limited:
 
-- run one live scenario
-- load cached outputs for the rest
-- still show the expected parallel architecture and timing fields
+- switch the app to replay mode
+- use stored responses and stored response times
+- show the cache/live badge in the observability panel
 
 If the UI breaks:
 
 - run the orchestration script from the terminal
-- show generated JSON and final Markdown report
+- show generated JSON, cached responses, trace log, and final decision report
 
 ## Judge-Facing Differentiators
 
 - Concrete real-world workflow, not a generic assistant.
-- Multimodal input: frames, telemetry, mission text.
-- Agent collaboration is visible.
-- Fast inference has a purpose: more futures inside the same decision window.
+- Proper web app with a mission simulator experience.
+- Multimodal input: frames, telemetry, route, obstacle, mission state.
+- Agent collaboration and raw model responses are visible.
+- Fast inference is still visible through response timing, while caching makes the demo stable.
 - The MVP stays credible by avoiding real autonomous drone control.
 
 ## Final Submission Checklist
 
 - README explains the project in one minute.
 - Docs include architecture and Cerebras integration notes.
-- Sample scenario runs locally.
+- Safe and dangerous scenarios run locally.
+- Web app shows simulator, agents, logs, and decision trace.
+- Cached replay works without Cerebras API access.
 - No API keys are committed.
 - Demo video is recorded.
 - Screenshots are captured.

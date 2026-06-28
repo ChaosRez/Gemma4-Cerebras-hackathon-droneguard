@@ -2,13 +2,10 @@
 
 Planned agents:
 
-- Vision Agent: analyzes up to 5 keyframes for hazards and landing-zone clues.
-- Telemetry Agent: summarizes telemetry anomalies and threshold breaches.
-- Mission Agent: extracts mission intent, constraints, and no-go conditions.
-- World-State Agent: merges vision, telemetry, and mission context.
-- Scenario Agent: evaluates one possible action and predicts residual risk.
-- Commander Agent: chooses the safest action from scenario outputs.
-- Report Agent: writes the final operator-facing mission report.
+- Vision Agent: analyzes up to 5 keyframes for hazards, obstacles, and route clues.
+- Telemetry Agent: summarizes telemetry anomalies, battery reserve, route progress, and reachability.
+- Commander Agent: chooses continue mission, return to start, hold position, or detour obstacle.
 
 Each agent should return structured data that matches `docs/DATA_CONTRACTS.md`.
 
+Do not add extra agents for the MVP. Mission context, route state, and reachability estimates should be deterministic backend data passed into these three agents.

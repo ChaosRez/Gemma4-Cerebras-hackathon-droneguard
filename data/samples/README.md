@@ -8,10 +8,14 @@ Recommended layout:
 data/samples/
 |-- safe/
 |   |-- frames/
+|   |-- cache/
+|   |-- scenario.json
 |   |-- telemetry.csv
 |   `-- mission.txt
-`-- risky/
+`-- dangerous/
     |-- frames/
+    |-- cache/
+    |-- scenario.json
     |-- telemetry.csv
     `-- mission.txt
 ```

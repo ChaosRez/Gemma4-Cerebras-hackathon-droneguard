@@ -5,12 +5,12 @@ This folder should coordinate a full DroneGuard run.
 The orchestrator owns:
 
 - run IDs
-- input validation
+- scenario validation
 - agent ordering
-- parallel scenario fan-out
+- live vs replay mode selection
 - timing metrics
 - error capture
+- Cerebras response cache reads and writes
 - final normalized result assembly
 
-For the hackathon MVP, use straightforward Python async orchestration instead of introducing a large workflow framework.
-
+For the hackathon MVP, keep orchestration straightforward. The sequence is Vision, Telemetry, decision context assembly, then Commander.

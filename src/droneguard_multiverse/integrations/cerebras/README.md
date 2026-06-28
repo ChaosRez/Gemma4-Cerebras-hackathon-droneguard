@@ -9,7 +9,7 @@ Responsibilities:
 - encode image frames as base64 data URIs
 - enforce request limits before calling the API
 - normalize responses and usage metadata
-- expose helpers for text, image, reasoning, and optional tool-calling requests
+- expose helpers for Vision, Telemetry, and Commander requests
+- pass raw request and response objects to the cache and observability layers
 
 See `docs/CEREBRAS_INTEGRATION.md` before implementing this layer.
-

@@ -1,17 +1,15 @@
-# UI
+# UI Helpers
 
-The MVP UI should be a Streamlit app.
+The main UI should live in the top-level `web/` app. This package folder is only for backend-facing UI helpers if the Python layer needs them.
 
-Required views:
+The web app should provide:
 
-- scenario selector or file upload area
-- keyframe preview
-- telemetry preview
+- scenario selector
+- mission simulator view
+- keyframe and telemetry preview
 - agent timeline
-- scenario comparison table
-- final recommendation
-- final report
-- timing and call-count metrics
+- Commander decision panel
+- observability drawer
+- cached replay and live mode labels
 
 The UI should make agent collaboration visible without needing judges to read code.
-
