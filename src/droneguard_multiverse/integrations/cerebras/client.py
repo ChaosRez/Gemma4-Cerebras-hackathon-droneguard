@@ -6,6 +6,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from droneguard_multiverse.config import load_project_env
+
 
 DEFAULT_MODEL = "gemma-4-31b"
 DEFAULT_CHAT_COMPLETIONS_URL = "https://api.cerebras.ai/v1/chat/completions"
@@ -24,6 +26,7 @@ class CerebrasClient:
         chat_url: str | None = None,
         timeout_s: float = 45.0,
     ) -> None:
+        load_project_env()
         self.api_key = api_key if api_key is not None else os.getenv("CEREBRAS_API_KEY")
         self.model = model or os.getenv("DRONEGUARD_MODEL", DEFAULT_MODEL)
         self.chat_url = chat_url or os.getenv("CEREBRAS_CHAT_COMPLETIONS_URL", DEFAULT_CHAT_COMPLETIONS_URL)

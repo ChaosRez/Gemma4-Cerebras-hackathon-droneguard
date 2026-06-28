@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
+
 from droneguard_multiverse.agents.commander import CommanderAgent
 from droneguard_multiverse.cache.replay import ResponseCache
+from droneguard_multiverse.config import load_project_env
 from droneguard_multiverse.integrations.cerebras.image_inputs import ImageInputError, encode_image_data_uri
 from droneguard_multiverse.orchestration.run import RunOrchestrator
 from droneguard_multiverse.paths import DATA_DIR
@@ -25,6 +28,27 @@ def test_image_encoder_rejects_unsupported_formats(tmp_path) -> None:
 
     with pytest.raises(ImageInputError):
         encode_image_data_uri(text_file)
+
+
+def test_project_env_loader_sets_missing_values_without_overriding_exports(tmp_path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "CEREBRAS_API_KEY='from-file'",
+                'DRONEGUARD_MODEL="from-file-model"',
+                "EXPORTED_ONLY=from-file",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    monkeypatch.setenv("DRONEGUARD_MODEL", "from-shell")
+
+    load_project_env(env_file)
+
+    assert os.environ["CEREBRAS_API_KEY"] == "from-file"
+    assert os.environ["DRONEGUARD_MODEL"] == "from-shell"
 
 
 def test_seed_cache_replay_returns_recorded_latency() -> None:

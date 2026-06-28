@@ -92,9 +92,11 @@ PYTHONPATH=src python -m droneguard_multiverse.api.routes --host 127.0.0.1 --por
 Open <http://127.0.0.1:8000>. Replay mode works without credentials. Live and refresh modes require:
 
 ```bash
-export CEREBRAS_API_KEY="..."
-export DRONEGUARD_MODEL="gemma-4-31b"
+cp .env.example .env
+# then set CEREBRAS_API_KEY in .env
 ```
+
+Exported shell variables take precedence over values in `.env`.
 
 ## Test
 

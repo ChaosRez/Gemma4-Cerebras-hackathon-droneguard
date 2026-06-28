@@ -163,8 +163,8 @@ Run these checks before building the full app:
 ## Environment Variables
 
 ```bash
-export CEREBRAS_API_KEY="..."
-export DRONEGUARD_MODEL="gemma-4-31b"
+cp .env.example .env
+# then set CEREBRAS_API_KEY in .env
 ```
 
 Never commit `.env` files or API keys.
