@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import os
+from typing import Any, Callable, TypeVar
 
 from droneguard_multiverse.config import load_project_env
 
@@ -18,6 +19,7 @@ class LangSmithStatus:
 
 
 _CONFIGURED = False
+T = TypeVar("T")
 
 
 def configure_langsmith() -> LangSmithStatus:
@@ -66,6 +68,33 @@ def configure_langsmith() -> LangSmithStatus:
         return LangSmithStatus(enabled=False, project=project, endpoint=endpoint, reason=f"configure failed: {exc}")
     _CONFIGURED = True
     return LangSmithStatus(enabled=True, project=project, endpoint=endpoint, reason="configured")
+
+
+def trace_step(
+    name: str,
+    action: Callable[[], T],
+    *,
+    run_type: str = "chain",
+    metadata: dict[str, Any] | None = None,
+) -> T:
+    if not _truthy(os.getenv("LANGSMITH_TRACING")):
+        return action()
+    try:
+        from langsmith import traceable
+    except ImportError:
+        return action()
+    wrapped = traceable(name=name, run_type=run_type, metadata=_safe_metadata(metadata or {}))(action)
+    return wrapped()
+
+
+def _safe_metadata(metadata: dict[str, Any]) -> dict[str, str | int | float | bool | None]:
+    safe: dict[str, str | int | float | bool | None] = {}
+    for key, value in metadata.items():
+        if isinstance(value, str | int | float | bool) or value is None:
+            safe[key] = value
+        else:
+            safe[key] = str(value)
+    return safe
 
 
 def _truthy(value: str | None) -> bool:

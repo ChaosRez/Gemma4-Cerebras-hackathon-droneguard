@@ -212,9 +212,10 @@ Pydantic AI is available as an optional runtime for text-only live agents.
 Responsibilities:
 
 - provide a framework-managed Cerebras model adapter for Telemetry and Commander calls
+- request native Pydantic structured outputs for Telemetry and Commander
 - preserve the existing cache key, validation, and `AgentExecution` response shape
 - leave Vision on the raw Cerebras Chat Completions client while it uses image content parts
-- create a path to structured outputs, tools, retries, multi-agent patterns, evals, and tracing without replacing local deterministic reachability code
+- create a path to tools, retries, multi-agent patterns, and evals without replacing local deterministic reachability code
 
 Activation:
 
@@ -243,6 +244,7 @@ External tracing:
 
 - LangSmith is optional and configured only when `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are present.
 - Pydantic AI instrumentation is enabled through LangSmith/OpenTelemetry setup at run-orchestrator startup.
+- Custom spans cover cache lookup, model call, validation, cache store, and deterministic fallback paths.
 - Local JSONL trace events remain the source of truth for replay and judge-facing UI.
 
 ## Runtime Flow

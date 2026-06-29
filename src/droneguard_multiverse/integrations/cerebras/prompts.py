@@ -17,9 +17,33 @@ def compact_json(payload: Any) -> str:
 
 def vision_prompt(scenario: Scenario) -> str:
     frame_ids = [frame.frame_id for frame in scenario.frame_metadata[:5]]
+    contract = {
+        "agent": "vision",
+        "hazards": [
+            {
+                "type": "obstacle_blocks_nominal_route",
+                "severity": "high",
+                "confidence": 0.84,
+                "frame_ids": [frame_ids[0]] if frame_ids else [],
+                "evidence": "Short visual evidence sentence.",
+            }
+        ],
+        "route_observations": [
+            {
+                "frame_id": frame_ids[0] if frame_ids else "frame_001",
+                "description": "Short visual route observation.",
+                "confidence": 0.72,
+            }
+        ],
+        "uncertainties": ["Short uncertainty sentence."],
+    }
     return (
         "You are the DroneGuard Vision Agent. Analyze the provided drone keyframes for safety hazards. "
-        "Return compact JSON only with keys agent, hazards, route_observations, uncertainties. "
+        "Return a raw compact JSON object only, with no Markdown fences or commentary. "
+        "The agent field must be exactly \"vision\". "
+        "Each hazard severity must be one of low, medium, high; map critical hazards to high. "
+        "hazards, route_observations, and uncertainties must all be arrays. "
+        f"Use this exact shape: {compact_json(contract)}. "
         f"Scenario: {scenario.label}. Mission goal: {scenario.mission_goal}. "
         f"Frame IDs in order: {', '.join(frame_ids)}."
     )

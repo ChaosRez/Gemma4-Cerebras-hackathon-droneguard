@@ -87,9 +87,9 @@ The repository now contains a runnable hackathon prototype:
 - synthetic telemetry CSVs and PNG keyframes
 - replay cache seeds for Vision, Telemetry, and Commander agents
 - stdlib Python API and orchestrator
-- Cerebras Chat Completions wrapper targeting `gemma-4-31b`
-- optional Pydantic AI bridge for text-only live agent calls
-- optional LangSmith trace configuration for Pydantic AI runs
+- Cerebras Chat Completions wrapper targeting `gemma-4-31b`, using the OpenAI-compatible SDK transport for live raw calls
+- optional Pydantic AI bridge for text-only live Telemetry and Commander calls with structured output models and retries
+- optional LangSmith trace configuration for Pydantic AI runs plus cache, validation, and fallback spans
 - static browser mission-control UI
 - focused tests for loaders, telemetry validation, reachability, cache replay, image encoding, and orchestration
 
@@ -107,13 +107,13 @@ cp .env.example .env
 # then set CEREBRAS_API_KEY in .env
 ```
 
-By default, live mode uses the raw Cerebras Chat Completions wrapper. To route text-only Telemetry and Commander calls through Pydantic AI, set:
+By default, live mode uses the raw Cerebras Chat Completions wrapper. To route text-only Telemetry and Commander calls through Pydantic AI structured outputs, set:
 
 ```bash
 DRONEGUARD_AGENT_RUNTIME=pydantic_ai
 ```
 
-Vision remains on the raw Cerebras client for multimodal image messages. To export Pydantic AI traces to LangSmith, set `LANGSMITH_TRACING=true`, `LANGSMITH_ENDPOINT`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT`.
+Vision remains on the raw Cerebras client for multimodal image messages. Live Vision calls still use the same local JSON validation and cache path as the text agents. To export Pydantic AI traces and DroneGuard custom spans to LangSmith, set `LANGSMITH_TRACING=true`, `LANGSMITH_ENDPOINT`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT`.
 
 Exported shell variables take precedence over values in `.env`.
 

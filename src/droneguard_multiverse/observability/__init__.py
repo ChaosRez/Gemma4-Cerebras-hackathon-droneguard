@@ -1,5 +1,5 @@
 from .events import TraceEvent
-from .langsmith import LangSmithStatus, configure_langsmith
+from .langsmith import LangSmithStatus, configure_langsmith, trace_step
 from .trace_store import TraceStore
 
-__all__ = ["LangSmithStatus", "TraceEvent", "TraceStore", "configure_langsmith"]
+__all__ = ["LangSmithStatus", "TraceEvent", "TraceStore", "configure_langsmith", "trace_step"]

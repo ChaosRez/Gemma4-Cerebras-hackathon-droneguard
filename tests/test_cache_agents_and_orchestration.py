@@ -1,20 +1,31 @@
 from __future__ import annotations
 
+import json
 import os
 
 from droneguard_multiverse.agents.commander import CommanderAgent
+from droneguard_multiverse.agents.common import execute_agent
 from droneguard_multiverse.cache.replay import ResponseCache
 from droneguard_multiverse.config import load_project_env
 from droneguard_multiverse.integrations.cerebras.image_inputs import ImageInputError, encode_image_data_uri
+from droneguard_multiverse.integrations.cerebras.client import CerebrasClient
+from droneguard_multiverse.integrations.cerebras.prompts import vision_prompt
 from droneguard_multiverse.integrations.pydantic_ai import (
     PydanticAIIntegrationError,
     messages_to_text_prompt,
     model_settings,
+    run_text_agent,
 )
 from droneguard_multiverse.observability.langsmith import configure_langsmith
 from droneguard_multiverse.orchestration.run import RunOrchestrator
 from droneguard_multiverse.paths import DATA_DIR
-from droneguard_multiverse.schemas.agents import AgentOutputValidationError, validate_commander_output
+from droneguard_multiverse.schemas.agents import (
+    AgentOutputValidationError,
+    CommanderAgentOutput,
+    TelemetryAgentOutput,
+    validate_commander_output,
+    validate_telemetry_output,
+)
 from droneguard_multiverse.schemas.scenario import load_scenario
 
 import pytest
@@ -96,6 +107,159 @@ def test_pydantic_ai_model_settings_include_reasoning_effort() -> None:
 
     assert settings["temperature"] == 0.1
     assert settings["openai_reasoning_effort"] == "medium"
+
+
+def test_vision_prompt_pins_raw_json_contract() -> None:
+    prompt = vision_prompt(load_scenario("dangerous_detour_low_battery"))
+
+    assert 'agent field must be exactly "vision"' in prompt
+    assert "map critical hazards to high" in prompt
+    assert '"route_observations":[{' in prompt
+
+
+def test_pydantic_ai_agent_uses_retries_for_structured_outputs(monkeypatch) -> None:
+    created = {}
+
+    class FakeAgent:
+        def __init__(self, model, *, output_type, retries):
+            created["output_type"] = output_type
+            created["retries"] = retries
+
+        def run_sync(self, prompt, model_settings=None):
+            class Result:
+                output = "ok"
+
+            return Result()
+
+    class FakeModel:
+        def __init__(self, model_name, provider):
+            created["model_name"] = model_name
+
+    class FakeProvider:
+        def __init__(self, api_key):
+            created["api_key"] = api_key
+
+    import sys
+    import types
+
+    fake_module = types.SimpleNamespace(Agent=FakeAgent)
+    fake_model_module = types.SimpleNamespace(CerebrasModel=FakeModel)
+    fake_provider_module = types.SimpleNamespace(CerebrasProvider=FakeProvider)
+    monkeypatch.setitem(sys.modules, "pydantic_ai", fake_module)
+    monkeypatch.setitem(sys.modules, "pydantic_ai.models.cerebras", fake_model_module)
+    monkeypatch.setitem(sys.modules, "pydantic_ai.providers.cerebras", fake_provider_module)
+
+    response = run_text_agent(
+        api_key="key",
+        model_name="gemma-4-31b",
+        messages=[{"role": "user", "content": "Return ok."}],
+        output_type=TelemetryAgentOutput,
+        retries=3,
+    )
+
+    assert created["output_type"] is TelemetryAgentOutput
+    assert created["retries"] == 3
+    assert response["choices"][0]["message"]["content"] == "ok"
+
+
+def test_cerebras_raw_client_prefers_openai_compatible_sdk(monkeypatch) -> None:
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **payload):
+            captured["payload"] = payload
+
+            class Response:
+                def model_dump(self, mode):
+                    captured["mode"] = mode
+                    return {"choices": [{"message": {"content": "{\"ok\": true}"}}]}
+
+            return Response()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key, base_url, timeout):
+            captured["api_key"] = api_key
+            captured["base_url"] = base_url
+            captured["timeout"] = timeout
+            self.chat = FakeChat()
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+    client = CerebrasClient(api_key="key", model="gemma-4-31b", timeout_s=7)
+
+    response = client.chat_completion([{"role": "user", "content": "Return JSON."}], reasoning_effort="medium")
+
+    assert captured["base_url"] == "https://api.cerebras.ai/v1"
+    assert captured["payload"]["reasoning_effort"] == "medium"
+    assert captured["mode"] == "json"
+    assert response["choices"][0]["message"]["content"] == "{\"ok\": true}"
+
+
+def test_telemetry_validator_uses_structured_output_model() -> None:
+    output = validate_telemetry_output(
+        {
+            "agent": "telemetry",
+            "mission_reachability": {
+                "can_complete_final_waypoint_and_return": True,
+                "estimated_remaining_range_m": 1280,
+                "required_range_with_detour_m": 570,
+                "reserve_after_return_m": 710,
+                "safety_buffer_m": 120,
+            },
+            "risk_flags": [],
+            "summary": {"min_battery_pct": 68, "max_speed_mps": 6.4},
+        }
+    )
+
+    assert TelemetryAgentOutput.model_validate(output).agent == "telemetry"
+    assert output["mission_reachability"]["estimated_remaining_range_m"] == 1280.0
+
+
+def test_execute_agent_forwards_pydantic_output_type(tmp_path) -> None:
+    class FakeClient:
+        model = "gemma-4-31b"
+        agent_runtime = "pydantic_ai"
+        output_type = None
+
+        def chat_completion(self, messages, *, output_type=None, reasoning_effort=None):
+            self.output_type = output_type
+            payload = {
+                "agent": "commander",
+                "recommended_action": "return_to_start",
+                "confidence": 0.86,
+                "operator_message": "Return to start.",
+                "why": ["Reserve is insufficient."],
+                "rejected_actions": [{"action": "continue_mission", "reason": "Range is insufficient."}],
+                "evidence_refs": ["telemetry.latest"],
+            }
+            return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+    client = FakeClient()
+    execution = execute_agent(
+        scenario_id="demo",
+        agent="commander",
+        prompt_version="test",
+        model=client.model,
+        reasoning_effort="medium",
+        input_payload={"prompt": "choose"},
+        messages=[{"role": "user", "content": "choose"}],
+        fallback_output={},
+        validator=validate_commander_output,
+        output_type=CommanderAgentOutput,
+        cache=ResponseCache(tmp_path / "cache"),
+        client=client,
+        mode="live",
+        simulate_latency=False,
+    )
+
+    assert client.output_type is CommanderAgentOutput
+    assert execution.normalized_output["recommended_action"] == "return_to_start"
+    assert execution.request["output_type"] == "CommanderAgentOutput"
 
 
 def test_langsmith_config_is_disabled_without_tracing(monkeypatch) -> None:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 ACTIONS = ("continue_mission", "return_to_start", "hold_position", "detour_obstacle")
@@ -9,6 +11,59 @@ SEVERITIES = ("low", "medium", "high")
 
 class AgentOutputValidationError(ValueError):
     pass
+
+
+ActionName = Literal["continue_mission", "return_to_start", "hold_position", "detour_obstacle"]
+SeverityName = Literal["low", "medium", "high"]
+
+
+class MissionReachabilityOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    can_complete_final_waypoint_and_return: bool
+    estimated_remaining_range_m: float
+    required_range_with_detour_m: float
+    reserve_after_return_m: float
+    safety_buffer_m: float
+
+
+class TelemetryRiskFlagOutput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    severity: SeverityName
+    timestamp: str | None = None
+    observed_value: float | None = None
+    threshold: float | None = None
+    evidence: str | None = None
+
+
+class TelemetryAgentOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent: Literal["telemetry"]
+    mission_reachability: MissionReachabilityOutput
+    risk_flags: list[TelemetryRiskFlagOutput]
+    summary: dict[str, float]
+
+
+class RejectedActionOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: ActionName
+    reason: str
+
+
+class CommanderAgentOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent: Literal["commander"]
+    recommended_action: ActionName
+    confidence: float = Field(ge=0.0, le=1.0)
+    operator_message: str
+    why: list[str]
+    rejected_actions: list[RejectedActionOutput]
+    evidence_refs: list[str]
 
 
 def validate_vision_output(output: dict[str, Any]) -> dict[str, Any]:
@@ -25,6 +80,10 @@ def validate_vision_output(output: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_telemetry_output(output: dict[str, Any]) -> dict[str, Any]:
+    try:
+        output = TelemetryAgentOutput.model_validate(output).model_dump()
+    except ValueError as exc:
+        raise AgentOutputValidationError(str(exc)) from exc
     _require_agent(output, "telemetry")
     reachability = _require_dict(output, "mission_reachability")
     for field in (
@@ -44,6 +103,10 @@ def validate_telemetry_output(output: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_commander_output(output: dict[str, Any]) -> dict[str, Any]:
+    try:
+        output = CommanderAgentOutput.model_validate(output).model_dump()
+    except ValueError as exc:
+        raise AgentOutputValidationError(str(exc)) from exc
     _require_agent(output, "commander")
     if output.get("recommended_action") not in ACTIONS:
         raise AgentOutputValidationError("commander recommended_action is not in the allowed enum")

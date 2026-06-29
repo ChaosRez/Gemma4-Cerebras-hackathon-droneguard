@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+import json
 import time
 from typing import Any
 
@@ -14,6 +15,8 @@ def run_text_agent(
     api_key: str | None,
     model_name: str,
     messages: list[dict[str, Any]],
+    output_type: type[Any] | None = None,
+    retries: int = 2,
     reasoning_effort: str | None = None,
     temperature: float = 0.1,
 ) -> dict[str, Any]:
@@ -32,9 +35,9 @@ def run_text_agent(
 
     model = CerebrasModel(model_name, provider=CerebrasProvider(api_key=api_key))
     try:
-        agent = Agent(model, output_type=str)
+        agent = Agent(model, output_type=output_type or str, retries=retries)
     except TypeError:
-        agent = Agent(model, result_type=str)
+        agent = Agent(model, result_type=output_type or str, retries=retries)
 
     started = time.time()
     try:
@@ -103,7 +106,12 @@ def _content_to_text(content: Any) -> str:
 def _result_output(result: Any) -> str:
     for attribute in ("output", "data"):
         if hasattr(result, attribute):
-            return str(getattr(result, attribute))
+            value = getattr(result, attribute)
+            if hasattr(value, "model_dump_json"):
+                return str(value.model_dump_json())
+            if isinstance(value, dict | list):
+                return json.dumps(value)
+            return str(value)
     return str(result)
 
 

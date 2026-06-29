@@ -13,6 +13,7 @@ from droneguard_multiverse.integrations.cerebras.client import (
     CerebrasClientError,
     assistant_text,
 )
+from droneguard_multiverse.observability.langsmith import trace_step
 
 
 @dataclass(frozen=True)
@@ -60,30 +61,65 @@ def execute_agent(
     messages: list[dict[str, Any]],
     fallback_output: dict[str, Any],
     validator: Callable[[dict[str, Any]], dict[str, Any]],
+    output_type: type[Any] | None = None,
     cache: ResponseCache,
     client: CerebrasClient,
     mode: str,
     simulate_latency: bool = True,
 ) -> AgentExecution:
     reasoning_key = reasoning_effort or "none"
+    output_type_name = getattr(output_type, "__name__", None)
+    cache_input_payload = {
+        **input_payload,
+        "agent_runtime": getattr(client, "agent_runtime", "unknown"),
+        "output_type": output_type_name,
+    }
     cache_key = build_cache_key(
         scenario_id=scenario_id,
         agent=agent,
         prompt_version=prompt_version,
         model=model,
         reasoning=reasoning_key,
-        input_payload=input_payload,
+        input_payload=cache_input_payload,
     )
-    request_payload: dict[str, Any] = {"model": model, "messages": messages}
+    request_payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "agent_runtime": getattr(client, "agent_runtime", "unknown"),
+    }
+    if output_type_name:
+        request_payload["output_type"] = output_type_name
     if reasoning_effort:
         request_payload["reasoning_effort"] = reasoning_effort
 
     if mode == "replay":
         try:
-            entry = cache.load(cache_key, scenario_id, agent)
+            entry = trace_step(
+                "droneguard.cache.lookup",
+                lambda: cache.load(cache_key, scenario_id, agent),
+                metadata=_trace_metadata(
+                    scenario_id=scenario_id,
+                    agent=agent,
+                    mode=mode,
+                    cache_key=cache_key,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                ),
+            )
             if simulate_latency:
                 time.sleep(max(0, int(entry.get("response_time_ms", 0))) / 1000.0)
-            normalized = validator(entry["normalized_output"])
+            normalized = trace_step(
+                "droneguard.agent.validate_output",
+                lambda: validator(entry["normalized_output"]),
+                metadata=_trace_metadata(
+                    scenario_id=scenario_id,
+                    agent=agent,
+                    mode=mode,
+                    cache_key=cache_key,
+                    model=model,
+                    validation_source="replay_cache",
+                ),
+            )
             return _execution_from_entry(
                 entry=entry,
                 agent=agent,
@@ -93,6 +129,18 @@ def execute_agent(
                 error=None,
             )
         except (CacheMissError, KeyError, ValueError) as exc:
+            fallback = trace_step(
+                "droneguard.agent.fallback_output",
+                lambda: validator(fallback_output),
+                metadata=_trace_metadata(
+                    scenario_id=scenario_id,
+                    agent=agent,
+                    mode=mode,
+                    cache_key=cache_key,
+                    model=model,
+                    fallback_reason="replay_cache_unavailable",
+                ),
+            )
             return _fallback_execution(
                 agent=agent,
                 cache_key=cache_key,
@@ -100,15 +148,41 @@ def execute_agent(
                 prompt_version=prompt_version,
                 reasoning_effort=reasoning_effort,
                 request=request_payload,
-                fallback_output=validator(fallback_output),
+                fallback_output=fallback,
                 error=f"Replay cache unavailable: {exc}",
             )
 
     try:
         started = time.perf_counter()
-        response = client.chat_completion(messages, reasoning_effort=reasoning_effort)
+        response = trace_step(
+            "droneguard.agent.model_call",
+            lambda: client.chat_completion(messages, output_type=output_type, reasoning_effort=reasoning_effort),
+            run_type="llm",
+            metadata=_trace_metadata(
+                scenario_id=scenario_id,
+                agent=agent,
+                mode=mode,
+                cache_key=cache_key,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                agent_runtime=getattr(client, "agent_runtime", "unknown"),
+                output_type=output_type_name,
+            ),
+        )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        normalized = validator(parse_json_object(assistant_text(response)))
+        normalized = trace_step(
+            "droneguard.agent.validate_output",
+            lambda: validator(parse_json_object(assistant_text(response))),
+            metadata=_trace_metadata(
+                scenario_id=scenario_id,
+                agent=agent,
+                mode=mode,
+                cache_key=cache_key,
+                model=model,
+                validation_source="model_response",
+                output_type=output_type_name,
+            ),
+        )
         entry = {
             "cache_key": cache_key,
             "scenario_id": scenario_id,
@@ -123,7 +197,18 @@ def execute_agent(
             "response_time_ms": elapsed_ms,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
-        cache.store(entry)
+        trace_step(
+            "droneguard.cache.store",
+            lambda: cache.store(entry),
+            metadata=_trace_metadata(
+                scenario_id=scenario_id,
+                agent=agent,
+                mode=mode,
+                cache_key=cache_key,
+                model=model,
+                response_time_ms=elapsed_ms,
+            ),
+        )
         return _execution_from_entry(
             entry=entry,
             agent=agent,
@@ -134,8 +219,30 @@ def execute_agent(
         )
     except (CerebrasClientError, ValueError, KeyError, json.JSONDecodeError) as exc:
         try:
-            entry = cache.load(cache_key, scenario_id, agent)
-            normalized = validator(entry["normalized_output"])
+            entry = trace_step(
+                "droneguard.cache.fallback_lookup",
+                lambda: cache.load(cache_key, scenario_id, agent),
+                metadata=_trace_metadata(
+                    scenario_id=scenario_id,
+                    agent=agent,
+                    mode=mode,
+                    cache_key=cache_key,
+                    model=model,
+                    fallback_reason="live_call_failed",
+                ),
+            )
+            normalized = trace_step(
+                "droneguard.agent.validate_output",
+                lambda: validator(entry["normalized_output"]),
+                metadata=_trace_metadata(
+                    scenario_id=scenario_id,
+                    agent=agent,
+                    mode=mode,
+                    cache_key=cache_key,
+                    model=model,
+                    validation_source="fallback_cache",
+                ),
+            )
             return _execution_from_entry(
                 entry=entry,
                 agent=agent,
@@ -145,6 +252,18 @@ def execute_agent(
                 error=f"Live Cerebras call failed, replay cache used: {exc}",
             )
         except (CacheMissError, KeyError, ValueError) as cache_exc:
+            fallback = trace_step(
+                "droneguard.agent.fallback_output",
+                lambda: validator(fallback_output),
+                metadata=_trace_metadata(
+                    scenario_id=scenario_id,
+                    agent=agent,
+                    mode=mode,
+                    cache_key=cache_key,
+                    model=model,
+                    fallback_reason="live_and_cache_unavailable",
+                ),
+            )
             return _fallback_execution(
                 agent=agent,
                 cache_key=cache_key,
@@ -152,7 +271,7 @@ def execute_agent(
                 prompt_version=prompt_version,
                 reasoning_effort=reasoning_effort,
                 request=request_payload,
-                fallback_output=validator(fallback_output),
+                fallback_output=fallback,
                 error=f"Live Cerebras call failed and cache was unavailable: {exc}; {cache_exc}",
             )
 
@@ -225,3 +344,7 @@ def _fallback_execution(
         normalized_output=fallback_output,
         error=error,
     )
+
+
+def _trace_metadata(**metadata: Any) -> dict[str, Any]:
+    return {key: value for key, value in metadata.items() if value is not None}

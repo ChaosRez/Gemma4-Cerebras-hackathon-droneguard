@@ -8,6 +8,7 @@ Minimum output:
 - in-memory events for the current web session
 - structured timing and cache metadata for each agent call
 - optional LangSmith tracing status when `LANGSMITH_TRACING=true`
+- optional LangSmith spans for cache lookup, model call, validation, cache store, and fallback steps
 
 The web app should expose these events in an observability panel so judges can inspect Gemma-4 prompts, responses, normalized outputs, errors, and Commander decisions.
 

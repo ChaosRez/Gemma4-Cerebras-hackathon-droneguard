@@ -1,3 +1,7 @@
 .idea/
 .env
 !.env.example
+__pycache__/
+*.py[cod]
+data/runs/run_*.jsonl
+data/samples/cache/entries/

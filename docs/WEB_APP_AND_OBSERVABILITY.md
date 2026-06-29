@@ -124,6 +124,8 @@ The `scenario_loaded` event includes observability metadata:
 - expected Commander action
 - LangSmith project, endpoint, and enablement status
 
+When LangSmith tracing is enabled, backend spans also cover cache lookup, model call, output validation, cache write, and deterministic fallback steps. Pydantic AI additionally instruments the Telemetry and Commander structured-output calls. Local JSONL events remain available even when LangSmith is disabled.
+
 ## UI Quality Bar
 
 - The first screen should be the mission control app, not a marketing landing page.

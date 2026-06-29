@@ -6,7 +6,7 @@ from droneguard_multiverse.agents.common import AgentExecution, execute_agent
 from droneguard_multiverse.cache.replay import ResponseCache
 from droneguard_multiverse.integrations.cerebras.client import CerebrasClient
 from droneguard_multiverse.integrations.cerebras.prompts import PROMPT_VERSION, telemetry_prompt
-from droneguard_multiverse.schemas.agents import validate_telemetry_output
+from droneguard_multiverse.schemas.agents import TelemetryAgentOutput, validate_telemetry_output
 from droneguard_multiverse.schemas.scenario import Scenario
 from droneguard_multiverse.schemas.telemetry import TelemetryRow
 from droneguard_multiverse.simulation.reachability import (
@@ -47,6 +47,7 @@ class TelemetryAgent:
             messages=messages,
             fallback_output=fallback,
             validator=validate_telemetry_output,
+            output_type=TelemetryAgentOutput,
             cache=cache,
             client=client,
             mode=mode,

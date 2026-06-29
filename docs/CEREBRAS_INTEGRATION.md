@@ -51,6 +51,7 @@ Default runtime:
 
 - `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`
 - Uses the project-owned `CerebrasClient`.
+- Sends live raw Chat Completions calls through the OpenAI-compatible SDK transport before falling back to direct HTTP.
 - Supports text and multimodal image content parts.
 - Preserves the existing request/response cache shape.
 
@@ -58,6 +59,8 @@ Optional Pydantic AI runtime:
 
 - `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
 - Uses Pydantic AI's Cerebras provider for text-only live calls.
+- Requests native structured Pydantic output models for Telemetry and Commander.
+- Allows multiple structured-output retries so Gemma can repair schema misses during live calls.
 - Keeps cache, replay, validation, and UI output unchanged.
 - Vision still falls back to the raw Cerebras client for image content parts.
 
@@ -127,6 +130,7 @@ Cache key inputs:
 - prompt version
 - model ID
 - reasoning setting
+- agent runtime and structured output type
 - image or telemetry input hash
 
 Cached payload:
@@ -163,6 +167,14 @@ LANGSMITH_PROJECT="DroneGuard Multiverse"
 
 At orchestrator startup, DroneGuard calls `configure_langsmith()`. When tracing is enabled and dependencies are installed, it configures LangSmith/OpenTelemetry and calls `pydantic_ai.Agent.instrument_all()`. The local trace event `scenario_loaded` records whether LangSmith was enabled, disabled, or unavailable.
 
+In addition to Pydantic AI's own instrumentation, DroneGuard creates custom LangSmith spans for:
+
+- cache lookup and fallback cache lookup
+- model calls
+- output validation
+- cache writes
+- deterministic fallback output
+
 ## Tool Calling
 
 Tool calling is not required for the MVP. Prefer deterministic backend functions for reachability, route distance, and battery reserve. Use tool calling only if it clearly improves the Cerebras story without increasing implementation risk.
@@ -180,7 +192,7 @@ If tool calling is used:
 
 ## Structured Output Strategy
 
-Prefer JSON-shaped prompts plus local validation. If native structured output is available and stable for the target model during validation, use it. Otherwise:
+Prefer native Pydantic structured outputs for text agents and JSON-shaped prompts plus local validation for multimodal Vision. If native structured output is available and stable for the target model during validation, use it. Otherwise:
 
 1. Ask for compact JSON only.
 2. Parse and validate with local schemas.

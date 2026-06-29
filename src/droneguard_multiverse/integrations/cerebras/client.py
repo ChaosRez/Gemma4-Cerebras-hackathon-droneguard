@@ -37,6 +37,7 @@ class CerebrasClient:
         self,
         messages: list[dict[str, Any]],
         *,
+        output_type: type[Any] | None = None,
         reasoning_effort: str | None = None,
         temperature: float = 0.1,
     ) -> dict[str, Any]:
@@ -50,6 +51,7 @@ class CerebrasClient:
                     api_key=self.api_key,
                     model_name=self.model,
                     messages=messages,
+                    output_type=output_type,
                     reasoning_effort=reasoning_effort,
                     temperature=temperature,
                 )
@@ -58,6 +60,13 @@ class CerebrasClient:
                     pass
                 else:
                     raise CerebrasClientError(f"Pydantic AI Cerebras request failed: {exc}") from exc
+        sdk_response = self._chat_completion_openai_sdk(
+            messages=messages,
+            reasoning_effort=reasoning_effort,
+            temperature=temperature,
+        )
+        if sdk_response is not None:
+            return sdk_response
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -83,6 +92,40 @@ class CerebrasClient:
             raise CerebrasClientError(f"Cerebras HTTP {exc.code}: {detail}") from exc
         except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise CerebrasClientError(f"Cerebras request failed: {exc}") from exc
+
+    def _chat_completion_openai_sdk(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        reasoning_effort: str | None,
+        temperature: float,
+    ) -> dict[str, Any] | None:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            return None
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
+        try:
+            client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.chat_url.removesuffix("/chat/completions"),
+                timeout=self.timeout_s,
+            )
+            response = client.chat.completions.create(**payload)
+        except Exception as exc:
+            raise CerebrasClientError(f"Cerebras OpenAI-compatible request failed: {exc}") from exc
+        if hasattr(response, "model_dump"):
+            return response.model_dump(mode="json")
+        if isinstance(response, dict):
+            return response
+        raise CerebrasClientError("Cerebras OpenAI-compatible response was not JSON serializable")
 
 
 def assistant_text(response: dict[str, Any]) -> str:
