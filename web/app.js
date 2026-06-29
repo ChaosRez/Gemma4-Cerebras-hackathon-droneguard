@@ -1065,12 +1065,12 @@ function renderTrace(events, result = state.result) {
     return;
   }
   const scenarioMetadata = events[0]?.metadata ?? {};
-  const langsmith = scenarioMetadata.langsmith ?? {};
+  const phoenix = scenarioMetadata.phoenix ?? {};
   const overviewItems = [
     ["Run", result?.run_id ?? events[0]?.run_id ?? "--"],
     ["Health", result?.run_health?.label ?? "--"],
     ["Runtime", scenarioMetadata.agent_runtime ?? "--"],
-    ["LangSmith", langsmith.enabled ? `${langsmith.project ?? "enabled"}` : langsmith.reason ?? "disabled"],
+    ["Phoenix", phoenix.enabled ? `${phoenix.project ?? "enabled"}` : phoenix.reason ?? "disabled"],
     ["Mode", result?.mode ?? scenarioMetadata.mode ?? "--"],
   ];
   els.traceEvents.innerHTML = `

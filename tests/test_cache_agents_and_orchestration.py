@@ -407,6 +407,7 @@ def test_full_dangerous_replay_run_returns_expected_decision() -> None:
     assert [agent["agent"] for agent in result["agents"]] == ["vision", "telemetry", "commander"]
     assert all(agent["mode"] == "replay" for agent in result["agents"])
     assert result["run_health"]["status"] == "all_replay"
+    assert "phoenix" in result["trace_events"][0]["metadata"]
 
 
 def test_run_health_reports_all_live_agents() -> None:

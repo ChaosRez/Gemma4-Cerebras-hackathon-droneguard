@@ -80,7 +80,7 @@ Show:
 - scenario ID
 - run health: all live, replay, partial fallback, mixed, or error
 - agent runtime: raw Cerebras Chat Completions or Pydantic AI
-- LangSmith tracing status
+- Phoenix tracing status
 - trace event list
 - request and response payloads
 - response time per agent
@@ -92,7 +92,7 @@ Show:
 
 Minimum implementation can be a drawer or tab in the web app. A separate observability product is optional.
 
-LangSmith is an optional external trace sink for live Pydantic AI runs. The web app should not depend on LangSmith availability; it should continue to render local JSONL events, agent payloads, and timings.
+Arize Phoenix is an optional external trace sink for live Pydantic AI runs. The web app should not depend on Phoenix availability; it should continue to render local JSONL events, agent payloads, and timings.
 
 ## Cached Replay
 
@@ -123,9 +123,9 @@ The `scenario_loaded` event includes observability metadata:
 - selected run mode
 - selected agent runtime
 - expected Commander action
-- LangSmith project, endpoint, and enablement status
+- Phoenix project, endpoint, and enablement status
 
-When LangSmith tracing is enabled, backend spans also cover cache lookup, model call, output validation, cache write, and deterministic fallback steps. Pydantic AI additionally instruments the Telemetry and Commander structured-output calls. Local JSONL events remain available even when LangSmith is disabled.
+When Phoenix tracing is enabled, backend spans also cover cache lookup, model call, output validation, cache write, and deterministic fallback steps. Pydantic AI additionally instruments the Telemetry and Commander structured-output calls. Local JSONL events remain available even when Phoenix is disabled.
 
 The backend response also includes a `run_health` summary derived from each agent execution. The UI should use it as the plain-language answer to whether a selected `Live Cerebras` run actually completed with live Gemma calls or fell back to replay.
 

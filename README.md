@@ -67,7 +67,7 @@ The app should produce:
 - MVP UI: proper browser-based app, preferably React or Next.js
 - API integration: Cerebras Chat Completions
 - Optional agent runtime: Pydantic AI with the Cerebras provider for text-only live agents
-- Optional external tracing: LangSmith via OpenTelemetry/Pydantic AI instrumentation
+- Optional external tracing: Arize Phoenix via OpenTelemetry/Pydantic AI instrumentation
 - Multimodal model target: `gemma-4-31b`
 - Video handling: extract keyframes, then send images
 - Agent outputs: structured JSON validated by local schemas
@@ -77,7 +77,7 @@ The app should produce:
 
 Pydantic AI is the first optional framework layer because this project is Python, already schema-heavy, and already built around explicit agent outputs, validation, caching, and Cerebras calls. Pydantic AI is model-agnostic, lists Cerebras as a supported provider, and adds structured outputs, tools, retries, multi-agent patterns, evals, and observability hooks without forcing a large framework rewrite.
 
-LangSmith is second because it is observability rather than an agent framework. It maps to DroneGuard's need to inspect agent decisions, latency, cache hits, fallback behavior, and demo reliability, and its tracing docs include Pydantic AI support.
+Arize Phoenix is second because it is observability rather than an agent framework. It maps to DroneGuard's need to inspect agent decisions, latency, cache hits, fallback behavior, and demo reliability, while OpenInference/Pydantic AI instrumentation keeps agent spans connected to the local trace story.
 
 ## Current Status
 
@@ -89,7 +89,7 @@ The repository now contains a runnable hackathon prototype:
 - stdlib Python API and orchestrator
 - Cerebras Chat Completions wrapper targeting `gemma-4-31b`, using the OpenAI-compatible SDK transport for live raw calls
 - optional Pydantic AI bridge for text-only live Telemetry and Commander calls with structured output models and retries
-- optional LangSmith trace configuration for Pydantic AI runs plus cache, validation, and fallback spans
+- optional Arize Phoenix trace configuration for Pydantic AI runs plus cache, validation, and fallback spans
 - static browser mission-control UI
 - focused tests for loaders, telemetry validation, reachability, cache replay, image encoding, and orchestration
 

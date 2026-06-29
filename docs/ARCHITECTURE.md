@@ -101,7 +101,7 @@ Implementation preference:
 Framework rationale:
 
 - Pydantic AI fits first because DroneGuard is Python-native, schema-heavy, and already built around explicit agent outputs, validation, caching, and model-provider calls.
-- LangSmith fits second because it is observability for decisions, latency, cache hits, fallback behavior, monitoring, and evaluation rather than an orchestration framework.
+- Arize Phoenix fits second because it is observability for decisions, latency, cache hits, fallback behavior, monitoring, and evaluation rather than an orchestration framework.
 
 ### Vision Agent
 
@@ -232,7 +232,7 @@ Responsibilities:
 - expose agent inputs and outputs in the UI
 - show response time, cache hit/miss, model ID, reasoning mode, and errors
 - make the Commander decision auditable
-- record whether LangSmith tracing was enabled for the run
+- record whether Phoenix tracing was enabled for the run
 
 Minimum implementation:
 
@@ -242,8 +242,8 @@ Minimum implementation:
 
 External tracing:
 
-- LangSmith is optional and configured only when `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are present.
-- Pydantic AI instrumentation is enabled through LangSmith/OpenTelemetry setup at run-orchestrator startup.
+- Arize Phoenix is optional and configured when `PHOENIX_TRACING=true`; it receives OpenTelemetry traces through `PHOENIX_COLLECTOR_ENDPOINT`.
+- Pydantic AI instrumentation is enabled through Phoenix/OpenTelemetry setup at run-orchestrator startup.
 - Custom spans cover cache lookup, model call, validation, cache store, and deterministic fallback paths.
 - Local JSONL trace events remain the source of truth for replay and judge-facing UI.
 

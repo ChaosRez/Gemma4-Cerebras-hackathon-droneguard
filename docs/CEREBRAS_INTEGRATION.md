@@ -11,10 +11,12 @@ Use these official Cerebras Inference docs for this project:
 - Chat Completions API reference: <https://inference-docs.cerebras.ai/api-reference/chat-completions>
 - Reasoning guide for `gemma-4-31b`: <https://inference-docs.cerebras.ai/capabilities/reasoning#gemma-4-31b-reasoning_effort>
 - Tool calling guide: <https://inference-docs.cerebras.ai/capabilities/tool-use>
+
+Related runtime and observability docs:
+
 - Pydantic AI overview: <https://pydantic.dev/docs/ai/overview/>
 - Pydantic AI Cerebras model docs: <https://pydantic.dev/docs/ai/models/cerebras/>
-- LangSmith observability docs: <https://docs.langchain.com/langsmith/observability>
-- LangSmith PydanticAI tracing docs: <https://docs.langchain.com/langsmith/trace-with-pydantic-ai>
+- Arize Phoenix is the current optional trace sink for OpenTelemetry/OpenInference spans.
 
 ## Project Model Target
 
@@ -61,7 +63,7 @@ Raw multimodal runtime:
 - Raw Chat Completions calls go through the OpenAI-compatible SDK transport before falling back to direct HTTP.
 - If an older `.env` sets `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`, structured text agents still use Pydantic AI whenever an output model is supplied.
 
-This split is intentional for the hackathon. Pydantic AI gives us the framework path for text agents and LangSmith tracing, while the raw client keeps multimodal Vision requests predictable.
+This split is intentional for the hackathon. Pydantic AI gives us the framework path for text agents and Phoenix/OpenInference tracing, while the raw client keeps multimodal Vision requests predictable.
 
 ## Image Input Pattern
 
@@ -149,22 +151,21 @@ Cached payload:
 
 The web app should show whether each agent response came from live mode or replay mode.
 
-## LangSmith Tracing
+## Arize Phoenix Tracing
 
-LangSmith is the second integration because it is observability, tracing, debugging, monitoring, and evaluation rather than an agent framework. That maps directly to DroneGuard's need to inspect agent decisions, latency, cache hits, fallback behavior, and demo reliability. LangSmith tracing is optional and should not be required for replay mode.
+Arize Phoenix is the second integration because it is observability, tracing, debugging, monitoring, and evaluation rather than an agent framework. That maps directly to DroneGuard's need to inspect agent decisions, latency, cache hits, fallback behavior, and demo reliability. Phoenix tracing is optional and should not be required for replay mode.
 
 Enable it with:
 
 ```bash
-LANGSMITH_TRACING=true
-LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
-LANGSMITH_API_KEY=<key>
-LANGSMITH_PROJECT="DroneGuard Multiverse"
+PHOENIX_TRACING=true
+PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006
+PHOENIX_PROJECT_NAME=droneguard-multiverse
 ```
 
-At orchestrator startup, DroneGuard calls `configure_langsmith()`. When tracing is enabled and dependencies are installed, it configures LangSmith/OpenTelemetry and calls `pydantic_ai.Agent.instrument_all()`. The local trace event `scenario_loaded` records whether LangSmith was enabled, disabled, or unavailable.
+At orchestrator startup, DroneGuard calls `configure_phoenix()`. When tracing is enabled and dependencies are installed, it configures OpenTelemetry export to Phoenix and calls `pydantic_ai.Agent.instrument_all()`. The local trace event `scenario_loaded` records whether Phoenix was enabled, disabled, or unavailable.
 
-In addition to Pydantic AI's own instrumentation, DroneGuard creates custom LangSmith spans for:
+In addition to Pydantic AI's own instrumentation, DroneGuard creates custom Phoenix/OpenTelemetry spans for:
 
 - cache lookup and fallback cache lookup
 - model calls
@@ -222,10 +223,9 @@ Optional runtime and tracing variables:
 ```bash
 DRONEGUARD_AGENT_RUNTIME=pydantic_ai
 
-LANGSMITH_TRACING=false
-LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
-LANGSMITH_API_KEY=
-LANGSMITH_PROJECT="DroneGuard Multiverse"
+PHOENIX_TRACING=false
+PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006
+PHOENIX_PROJECT_NAME=droneguard-multiverse
 ```
 
 Never commit `.env` files or API keys.

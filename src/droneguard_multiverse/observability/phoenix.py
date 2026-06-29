@@ -26,7 +26,7 @@ def configure_phoenix() -> PhoenixStatus:
     global _CONFIGURED
     load_project_env()
     
-    project = os.getenv("PHOENIX_PROJECT_NAME") or os.getenv("LANGSMITH_PROJECT") or "droneguard-multiverse"
+    project = os.getenv("PHOENIX_PROJECT_NAME") or "droneguard-multiverse"
     endpoint = os.getenv("PHOENIX_COLLECTOR_ENDPOINT") or "http://127.0.0.1:6006"
     
     if not _truthy(os.getenv("PHOENIX_TRACING")):

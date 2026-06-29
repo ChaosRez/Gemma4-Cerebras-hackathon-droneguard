@@ -1331,14 +1331,14 @@ function renderTrace(events, result = state.result) {
   }
   
   const metadata = events[0]?.metadata ?? {};
-  const langsmith = metadata.langsmith ?? {};
+  const phoenix = metadata.phoenix ?? {};
   
   const items = [
     ["Run ID", result?.run_id?.slice(0, 16) ?? "--"],
     ["Inference", inferenceModeLabel(result?.mode ?? state.runMode)],
     ["Provider", providerLabel(result)],
     ["Health", result?.run_health?.label ?? "OK"],
-    ["LangSmith", langsmith.enabled ? "Enabled" : "Disabled"],
+    ["Phoenix", phoenix.enabled ? "Enabled" : "Disabled"],
   ];
   
   els.traceEvents.innerHTML = `
