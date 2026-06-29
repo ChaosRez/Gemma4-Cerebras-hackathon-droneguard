@@ -2,7 +2,11 @@
 name = "droneguard-multiverse"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "langsmith[otel]",
+    "openai",
+    "pydantic-ai-slim",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

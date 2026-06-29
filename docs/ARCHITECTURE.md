@@ -60,6 +60,7 @@ Responsibilities:
 - serve scenario manifests and static assets
 - run the selected scenario through the three agents
 - expose cached and live Cerebras execution modes
+- optionally route text-only live agent calls through Pydantic AI's Cerebras adapter
 - write trace events and run summaries
 - return one normalized result for the web app
 
@@ -95,6 +96,12 @@ Implementation preference:
 - keep each agent as a simple function or class with one `run` method
 - use cached replay by default for demo stability
 - call Cerebras live only when the live-mode toggle is enabled
+- keep Pydantic AI as a runtime adapter behind the existing client/cache boundary, not a rewrite of the orchestration layer
+
+Framework rationale:
+
+- Pydantic AI fits first because DroneGuard is Python-native, schema-heavy, and already built around explicit agent outputs, validation, caching, and model-provider calls.
+- LangSmith fits second because it is observability for decisions, latency, cache hits, fallback behavior, monitoring, and evaluation rather than an orchestration framework.
 
 ### Vision Agent
 
@@ -198,6 +205,24 @@ Responsibilities:
 
 This cache is part of the demo, not an afterthought. It makes the application reliable during judging while still showing real Cerebras-generated responses.
 
+### Pydantic AI Runtime
+
+Pydantic AI is available as an optional runtime for text-only live agents.
+
+Responsibilities:
+
+- provide a framework-managed Cerebras model adapter for Telemetry and Commander calls
+- preserve the existing cache key, validation, and `AgentExecution` response shape
+- leave Vision on the raw Cerebras Chat Completions client while it uses image content parts
+- create a path to structured outputs, tools, retries, multi-agent patterns, evals, and tracing without replacing local deterministic reachability code
+
+Activation:
+
+- default: `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`
+- opt-in: `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
+
+Replay mode does not require Pydantic AI or Cerebras credentials. If Pydantic AI is enabled but cannot handle a multimodal request, the client falls back to the raw Cerebras request path for that call.
+
 ### Observability
 
 Responsibilities:
@@ -206,6 +231,7 @@ Responsibilities:
 - expose agent inputs and outputs in the UI
 - show response time, cache hit/miss, model ID, reasoning mode, and errors
 - make the Commander decision auditable
+- record whether LangSmith tracing was enabled for the run
 
 Minimum implementation:
 
@@ -213,10 +239,11 @@ Minimum implementation:
 - in-memory event stream for the current web session
 - web app trace drawer or observability tab
 
-Stretch implementation:
+External tracing:
 
-- OpenTelemetry-compatible event shape
-- open-source trace or log viewer if it can be integrated quickly
+- LangSmith is optional and configured only when `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are present.
+- Pydantic AI instrumentation is enabled through LangSmith/OpenTelemetry setup at run-orchestrator startup.
+- Local JSONL trace events remain the source of truth for replay and judge-facing UI.
 
 ## Runtime Flow
 

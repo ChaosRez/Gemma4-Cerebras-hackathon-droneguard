@@ -1,6 +1,6 @@
 # Cerebras Integration Notes
 
-Last reviewed: 2026-06-28
+Last reviewed: 2026-06-29
 
 ## Where Is The Cerebras Documentation?
 
@@ -11,6 +11,10 @@ Use these official Cerebras Inference docs for this project:
 - Chat Completions API reference: <https://inference-docs.cerebras.ai/api-reference/chat-completions>
 - Reasoning guide for `gemma-4-31b`: <https://inference-docs.cerebras.ai/capabilities/reasoning#gemma-4-31b-reasoning_effort>
 - Tool calling guide: <https://inference-docs.cerebras.ai/capabilities/tool-use>
+- Pydantic AI overview: <https://pydantic.dev/docs/ai/overview/>
+- Pydantic AI Cerebras model docs: <https://pydantic.dev/docs/ai/models/cerebras/>
+- LangSmith observability docs: <https://docs.langchain.com/langsmith/observability>
+- LangSmith PydanticAI tracing docs: <https://docs.langchain.com/langsmith/trace-with-pydantic-ai>
 
 ## Project Model Target
 
@@ -36,6 +40,28 @@ The MVP uses only three Cerebras-backed agents:
 - Commander Agent: normalized decision context plus allowed action enum
 
 The backend should stay simple. It loads scenario data, calls or replays the three agents, validates structured outputs, and returns a result to the web app.
+
+## Runtime Options
+
+### Why Pydantic AI First
+
+DroneGuard is a Python project with schema-heavy agent boundaries, local validation, cached Cerebras responses, and explicit normalized outputs. Pydantic AI fits that shape because it is model-agnostic, supports Cerebras as a provider, and adds structured outputs, tools, retries, multi-agent patterns, evals, and optional observability without forcing the project into a large agent framework.
+
+Default runtime:
+
+- `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`
+- Uses the project-owned `CerebrasClient`.
+- Supports text and multimodal image content parts.
+- Preserves the existing request/response cache shape.
+
+Optional Pydantic AI runtime:
+
+- `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
+- Uses Pydantic AI's Cerebras provider for text-only live calls.
+- Keeps cache, replay, validation, and UI output unchanged.
+- Vision still falls back to the raw Cerebras client for image content parts.
+
+This split is intentional for the hackathon. Pydantic AI gives us a real framework path for text agents and LangSmith tracing, while the raw client keeps multimodal Vision requests predictable.
 
 ## Image Input Pattern
 
@@ -122,6 +148,20 @@ Cached payload:
 
 The web app should show whether each agent response came from live mode or replay mode.
 
+## LangSmith Tracing
+
+LangSmith is the second integration because it is observability, tracing, debugging, monitoring, and evaluation rather than an agent framework. That maps directly to DroneGuard's need to inspect agent decisions, latency, cache hits, fallback behavior, and demo reliability. LangSmith tracing is optional and should not be required for replay mode.
+
+Enable it with:
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=<key>
+LANGSMITH_PROJECT=droneguard-multiverse
+```
+
+At orchestrator startup, DroneGuard calls `configure_langsmith()`. When tracing is enabled and dependencies are installed, it configures LangSmith/OpenTelemetry and calls `pydantic_ai.Agent.instrument_all()`. The local trace event `scenario_loaded` records whether LangSmith was enabled, disabled, or unavailable.
+
 ## Tool Calling
 
 Tool calling is not required for the MVP. Prefer deterministic backend functions for reachability, route distance, and battery reserve. Use tool calling only if it clearly improves the Cerebras story without increasing implementation risk.
@@ -165,6 +205,17 @@ Run these checks before building the full app:
 ```bash
 cp .env.example .env
 # then set CEREBRAS_API_KEY in .env
+```
+
+Optional runtime and tracing variables:
+
+```bash
+DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions
+# DRONEGUARD_AGENT_RUNTIME=pydantic_ai
+
+LANGSMITH_TRACING=false
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=droneguard-multiverse
 ```
 
 Never commit `.env` files or API keys.

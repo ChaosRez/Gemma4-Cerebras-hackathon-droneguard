@@ -12,6 +12,7 @@ from droneguard_multiverse.agents.vision import VisionAgent
 from droneguard_multiverse.cache.replay import ResponseCache
 from droneguard_multiverse.integrations.cerebras.client import CerebrasClient
 from droneguard_multiverse.observability.events import TraceEvent
+from droneguard_multiverse.observability.langsmith import configure_langsmith
 from droneguard_multiverse.observability.trace_store import TraceStore
 from droneguard_multiverse.paths import DATA_DIR, TRACE_DIR
 from droneguard_multiverse.schemas.agents import ACTIONS
@@ -35,6 +36,7 @@ class RunOrchestrator:
         self.cache = cache or ResponseCache(data_dir / "cache")
         self.client = client or CerebrasClient()
         self.simulate_latency = simulate_latency
+        self.langsmith_status = configure_langsmith()
         self.vision_agent = VisionAgent()
         self.telemetry_agent = TelemetryAgent()
         self.commander_agent = CommanderAgent()
@@ -72,7 +74,12 @@ class RunOrchestrator:
             scenario,
             "scenario_loaded",
             f"Loaded {scenario.label}.",
-            metadata={"mode": mode, "expected_action": scenario.expected_action},
+            metadata={
+                "mode": mode,
+                "expected_action": scenario.expected_action,
+                "agent_runtime": getattr(self.client, "agent_runtime", "unknown"),
+                "langsmith": self.langsmith_status.to_dict(),
+            },
         )
 
         self._event(trace, scenario, "agent_request_started", "Vision Agent started.", agent="vision")

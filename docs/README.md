@@ -7,9 +7,9 @@ This folder captures the hackathon project plan, implementation structure, and i
 
 1. [Hackathon plan](./HACKATHON_PLAN.md) - 24-hour build plan, MVP boundary, milestones, risks, and judging narrative.
 2. [Architecture](./ARCHITECTURE.md) - agents, data flow, component boundaries, and repo structure.
-3. [Cerebras integration notes](./CEREBRAS_INTEGRATION.md) - model ID, linked docs, request patterns, reasoning, image inputs, and validation caveats.
+3. [Cerebras integration notes](./CEREBRAS_INTEGRATION.md) - model ID, linked docs, request patterns, Pydantic AI runtime option, LangSmith tracing, reasoning, image inputs, and validation caveats.
 4. [Data contracts](./DATA_CONTRACTS.md) - telemetry CSV fields and structured JSON outputs expected from agents.
-5. [Web app and observability](./WEB_APP_AND_OBSERVABILITY.md) - browser UI requirements, simulator integration, traces, logs, and cached replay.
+5. [Web app and observability](./WEB_APP_AND_OBSERVABILITY.md) - browser UI requirements, simulator integration, local traces, LangSmith status, logs, and cached replay.
 6. [Demo runbook](./DEMO_RUNBOOK.md) - demo script, asset checklist, fallback path, and pitch talking points.
 
 ## One-Sentence Pitch

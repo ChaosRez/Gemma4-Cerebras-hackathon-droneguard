@@ -17,7 +17,7 @@ Prepare two scenarios:
 
 2. Risky flight
    - visible hazard or constrained environment
-   - obstacle forces a detour
+   - restricted area forces a detour
    - battery level and detour mean the drone cannot safely reach the final mission point and return
    - expected output: return to start
 
@@ -41,7 +41,7 @@ data/samples/<scenario>/
 ## Five-Minute Demo Flow
 
 1. Open the app with the dangerous scenario selected.
-2. Show the mission route, waypoints, obstacle, drone position, and battery reserve.
+2. Show the mission route, waypoints, restricted area, drone position, and battery reserve.
 3. Show the keyframes and telemetry preview.
 4. Run analysis.
 5. Narrate the agent timeline:
@@ -61,7 +61,7 @@ data/samples/<scenario>/
 
 "DroneGuard Multiverse is a web-based safety simulator for drone operations. The operator selects a predefined multi-point mission, watches the simulated drone progress through the route, and sees Vision, Telemetry, and Commander agents reason over frames and flight data.
 
-In the dangerous scenario, an obstacle forces a detour and the battery reserve is no longer enough to reach the final waypoint and return. The Commander agent chooses return to start, and the UI shows the raw Gemma-4 responses, normalized outputs, timing, and decision evidence.
+In the dangerous scenario, a restricted area forces a detour and the battery reserve is no longer enough to reach the final waypoint and return. The Commander agent chooses return to start, and the UI shows the raw Gemma-4 responses, normalized outputs, timing, and decision evidence.
 
 This is scoped as operator decision support, not real drone control. The demo can run live against Cerebras or replay cached Cerebras responses with recorded response times, so judges can inspect both the agent reasoning and the system behavior reliably."
 
@@ -78,6 +78,7 @@ If the API is slow or rate-limited:
 - switch the app to replay mode
 - use stored responses and stored response times
 - show the cache/live badge in the observability panel
+- keep Pydantic AI and LangSmith disabled if they add external risk during judging
 
 If the UI breaks:
 
@@ -88,8 +89,9 @@ If the UI breaks:
 
 - Concrete real-world workflow, not a generic assistant.
 - Proper web app with a mission simulator experience.
-- Multimodal input: frames, telemetry, route, obstacle, mission state.
+- Multimodal input: frames, telemetry, route, restricted area, mission state.
 - Agent collaboration and raw model responses are visible.
+- Optional Pydantic AI runtime and LangSmith tracing show a path beyond the local replay MVP.
 - Fast inference is still visible through response timing, while caching makes the demo stable.
 - The MVP stays credible by avoiding real autonomous drone control.
 
@@ -100,6 +102,7 @@ If the UI breaks:
 - Safe and dangerous scenarios run locally.
 - Web app shows simulator, agents, logs, and decision trace.
 - Cached replay works without Cerebras API access.
+- Pydantic AI runtime and LangSmith env vars are documented.
 - No API keys are committed.
 - Demo video is recorded.
 - Screenshots are captured.

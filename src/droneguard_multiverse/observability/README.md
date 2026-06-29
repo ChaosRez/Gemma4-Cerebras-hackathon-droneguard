@@ -7,6 +7,8 @@ Minimum output:
 - local JSONL trace per run
 - in-memory events for the current web session
 - structured timing and cache metadata for each agent call
+- optional LangSmith tracing status when `LANGSMITH_TRACING=true`
 
 The web app should expose these events in an observability panel so judges can inspect Gemma-4 prompts, responses, normalized outputs, errors, and Commander decisions.
 
+LangSmith is an external trace sink, not a runtime dependency for replay mode. The local trace store remains the primary source for the UI.

@@ -78,6 +78,8 @@ Show:
 
 - run ID
 - scenario ID
+- agent runtime: raw Cerebras Chat Completions or Pydantic AI
+- LangSmith tracing status
 - trace event list
 - request and response payloads
 - response time per agent
@@ -88,6 +90,8 @@ Show:
 - parsing or validation errors
 
 Minimum implementation can be a drawer or tab in the web app. A separate observability product is optional.
+
+LangSmith is an optional external trace sink for live Pydantic AI runs. The web app should not depend on LangSmith availability; it should continue to render local JSONL events, agent payloads, and timings.
 
 ## Cached Replay
 
@@ -112,6 +116,13 @@ Every run should produce structured events:
 - `run_completed`
 
 Store events locally as JSONL first. Keep the schema compatible with a future OpenTelemetry-style integration.
+
+The `scenario_loaded` event includes observability metadata:
+
+- selected run mode
+- selected agent runtime
+- expected Commander action
+- LangSmith project and enablement status
 
 ## UI Quality Bar
 

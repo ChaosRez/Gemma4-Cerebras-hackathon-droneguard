@@ -31,6 +31,7 @@ class CerebrasClient:
         self.model = model or os.getenv("DRONEGUARD_MODEL", DEFAULT_MODEL)
         self.chat_url = chat_url or os.getenv("CEREBRAS_CHAT_COMPLETIONS_URL", DEFAULT_CHAT_COMPLETIONS_URL)
         self.timeout_s = timeout_s
+        self.agent_runtime = os.getenv("DRONEGUARD_AGENT_RUNTIME", "cerebras_chat_completions").strip().lower()
 
     def chat_completion(
         self,
@@ -41,6 +42,22 @@ class CerebrasClient:
     ) -> dict[str, Any]:
         if not self.api_key:
             raise CerebrasClientError("CEREBRAS_API_KEY is not set")
+        if self.agent_runtime == "pydantic_ai":
+            try:
+                from droneguard_multiverse.integrations.pydantic_ai.runner import run_text_agent
+
+                return run_text_agent(
+                    api_key=self.api_key,
+                    model_name=self.model,
+                    messages=messages,
+                    reasoning_effort=reasoning_effort,
+                    temperature=temperature,
+                )
+            except Exception as exc:
+                if _contains_non_text_content(messages):
+                    pass
+                else:
+                    raise CerebrasClientError(f"Pydantic AI Cerebras request failed: {exc}") from exc
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -79,3 +96,14 @@ def assistant_text(response: dict[str, Any]) -> str:
         text_parts = [part.get("text", "") for part in content if isinstance(part, dict)]
         return "\n".join(part for part in text_parts if part)
     raise CerebrasClientError("Cerebras assistant content is not text")
+
+
+def _contains_non_text_content(messages: list[dict[str, Any]]) -> bool:
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get("type") != "text":
+                return True
+    return False

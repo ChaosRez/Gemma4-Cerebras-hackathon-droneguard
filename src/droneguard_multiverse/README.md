@@ -8,6 +8,7 @@ Expected modules:
 - `api/` for lightweight endpoints used by the web app
 - `cache/` for Cerebras response caching and replay
 - `integrations/cerebras/` for API client and image-input formatting
+- `integrations/pydantic_ai/` for optional Pydantic AI live text-agent calls
 - `observability/` for trace events, logs, timings, and decision visibility
 - `orchestration/` for run coordination
 - `schemas/` for typed contracts and validation

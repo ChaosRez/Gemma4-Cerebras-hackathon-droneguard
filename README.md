@@ -51,6 +51,7 @@ The app should produce:
 |   |-- api/                         # lightweight backend endpoints for the web app
 |   |-- cache/                       # Cerebras response cache and replay helpers
 |   |-- integrations/cerebras/       # Cerebras client, image formatting, request helpers
+|   |-- integrations/pydantic_ai/    # optional Pydantic AI Cerebras runtime bridge
 |   |-- observability/               # trace events, run logs, and response timing
 |   |-- orchestration/               # demo run coordination
 |   |-- schemas/                     # typed data models and JSON schema definitions
@@ -65,10 +66,18 @@ The app should produce:
 - Backend and orchestration: lightweight Python 3.12 API
 - MVP UI: proper browser-based app, preferably React or Next.js
 - API integration: Cerebras Chat Completions
+- Optional agent runtime: Pydantic AI with the Cerebras provider for text-only live agents
+- Optional external tracing: LangSmith via OpenTelemetry/Pydantic AI instrumentation
 - Multimodal model target: `gemma-4-31b`
 - Video handling: extract keyframes, then send images
 - Agent outputs: structured JSON validated by local schemas
 - Demo mode: live Cerebras calls or cached replay with recorded response times
+
+## Integration Rationale
+
+Pydantic AI is the first optional framework layer because this project is Python, already schema-heavy, and already built around explicit agent outputs, validation, caching, and Cerebras calls. Pydantic AI is model-agnostic, lists Cerebras as a supported provider, and adds structured outputs, tools, retries, multi-agent patterns, evals, and observability hooks without forcing a large framework rewrite.
+
+LangSmith is second because it is observability rather than an agent framework. It maps to DroneGuard's need to inspect agent decisions, latency, cache hits, fallback behavior, and demo reliability, and its tracing docs include Pydantic AI support.
 
 ## Current Status
 
@@ -79,6 +88,8 @@ The repository now contains a runnable hackathon prototype:
 - replay cache seeds for Vision, Telemetry, and Commander agents
 - stdlib Python API and orchestrator
 - Cerebras Chat Completions wrapper targeting `gemma-4-31b`
+- optional Pydantic AI bridge for text-only live agent calls
+- optional LangSmith trace configuration for Pydantic AI runs
 - static browser mission-control UI
 - focused tests for loaders, telemetry validation, reachability, cache replay, image encoding, and orchestration
 
@@ -95,6 +106,14 @@ Open <http://127.0.0.1:8000>. Replay mode works without credentials. Live and re
 cp .env.example .env
 # then set CEREBRAS_API_KEY in .env
 ```
+
+By default, live mode uses the raw Cerebras Chat Completions wrapper. To route text-only Telemetry and Commander calls through Pydantic AI, set:
+
+```bash
+DRONEGUARD_AGENT_RUNTIME=pydantic_ai
+```
+
+Vision remains on the raw Cerebras client for multimodal image messages. To export Pydantic AI traces to LangSmith, set `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT`.
 
 Exported shell variables take precedence over values in `.env`.
 

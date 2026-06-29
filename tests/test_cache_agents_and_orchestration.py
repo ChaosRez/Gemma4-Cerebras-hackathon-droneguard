@@ -6,6 +6,12 @@ from droneguard_multiverse.agents.commander import CommanderAgent
 from droneguard_multiverse.cache.replay import ResponseCache
 from droneguard_multiverse.config import load_project_env
 from droneguard_multiverse.integrations.cerebras.image_inputs import ImageInputError, encode_image_data_uri
+from droneguard_multiverse.integrations.pydantic_ai import (
+    PydanticAIIntegrationError,
+    messages_to_text_prompt,
+    model_settings,
+)
+from droneguard_multiverse.observability.langsmith import configure_langsmith
 from droneguard_multiverse.orchestration.run import RunOrchestrator
 from droneguard_multiverse.paths import DATA_DIR
 from droneguard_multiverse.schemas.agents import AgentOutputValidationError, validate_commander_output
@@ -49,6 +55,51 @@ def test_project_env_loader_sets_missing_values_without_overriding_exports(tmp_p
 
     assert os.environ["CEREBRAS_API_KEY"] == "from-file"
     assert os.environ["DRONEGUARD_MODEL"] == "from-shell"
+
+
+def test_pydantic_ai_prompt_bridge_accepts_text_parts() -> None:
+    prompt = messages_to_text_prompt(
+        [
+            {"role": "system", "content": "Return JSON only."},
+            {"role": "user", "content": [{"type": "text", "text": "Assess route risk."}]},
+        ]
+    )
+
+    assert "SYSTEM:\nReturn JSON only." in prompt
+    assert "USER:\nAssess route risk." in prompt
+
+
+def test_pydantic_ai_prompt_bridge_rejects_multimodal_parts() -> None:
+    with pytest.raises(PydanticAIIntegrationError):
+        messages_to_text_prompt(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Analyze frame."},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                    ],
+                }
+            ]
+        )
+
+
+def test_pydantic_ai_model_settings_include_reasoning_effort() -> None:
+    settings = model_settings(0.1, "medium")
+
+    assert settings["temperature"] == 0.1
+    assert settings["openai_reasoning_effort"] == "medium"
+
+
+def test_langsmith_config_is_disabled_without_tracing(monkeypatch) -> None:
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.setenv("LANGSMITH_PROJECT", "droneguard-multiverse")
+
+    status = configure_langsmith()
+
+    assert status.enabled is False
+    assert status.project == "droneguard-multiverse"
 
 
 def test_seed_cache_replay_returns_recorded_latency() -> None:
