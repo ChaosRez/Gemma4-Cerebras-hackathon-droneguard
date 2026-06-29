@@ -1,7 +1,7 @@
 const AGENT_DISPLAY_NAMES = {
-  vision: "Route Vision",
-  telemetry: "Battery Check",
-  commander: "Dispatch AI",
+  vision: "Route Scan",
+  telemetry: "Zone Monitor",
+  commander: "Flight Commander",
 };
 
 const ORDER_PROFILES = {
@@ -27,7 +27,71 @@ const ORDER_PROFILES = {
     price: "€18.00",
     courier: "Drone QD-3",
   },
+  alexanderplatz_restricted: {
+    order_id: "QD-BER-2918",
+    restaurant: "Mustafa's Gemüse Kebap",
+    restaurant_emoji: "🥙",
+    items: ["Gemüse Döner × 1", "Ayran × 1"],
+    customer: "Lena Hoffmann",
+    address: "Kastanienallee 82, Prenzlauer Berg",
+    eta_minutes: 10,
+    price: "€12.50",
+    courier: "Drone QD-3",
+  },
 };
+
+const SCENARIO_PROFILES = {
+  alexanderplatz_restricted: {
+    zone_short: "Alexanderplatz",
+    zone_marker: "⛔ Alexanderplatz No-Fly",
+    breach_message:
+      "NO-FLY BREACH — Autopilot entered Alexanderplatz restricted airspace before Standard inference could reroute",
+    approach_phase: "Approaching Alexanderplatz",
+    detour_phase: "Detouring around Alexanderplatz",
+    detour_action: "Rerouting around Alexanderplatz",
+    cerebras_summary: (tps) =>
+      `Agents responded at ${tps.toLocaleString()} tok/s — detour issued before Alexanderplatz breach.`,
+    standard_summary: (tps) =>
+      `Autopilot held too long at ${tps} tok/s — agents arrived after the drone entered Alexanderplatz restricted airspace.`,
+    standard_message: (tps) =>
+      `Autopilot flying toward Alexanderplatz — Standard inference at ${tps} tok/s is too slow to reroute in time…`,
+  },
+  dangerous_detour_low_battery: {
+    zone_short: "Mauerpark",
+    zone_marker: "🎪 Mauerpark No-Fly",
+    breach_message:
+      "DELIVERY PAUSED — Mauerpark blocks the route and Standard inference arrived too late to reroute safely",
+    approach_phase: "Approaching Mauerpark",
+    detour_phase: "Checking alternate route",
+    detour_action: "Rerouting around Mauerpark",
+    cerebras_summary: () => "Agents responded in time — returning to kitchen before battery runs out.",
+    standard_summary: (tps) =>
+      `Autopilot held too long at ${tps} tok/s — battery agents arrived too late to abort safely.`,
+    standard_message: (tps) =>
+      `Autopilot continuing toward Mauerpark — Standard inference at ${tps} tok/s is too slow…`,
+  },
+};
+
+function scenarioProfile(scenario) {
+  return (
+    SCENARIO_PROFILES[scenario?.scenario_id] ?? {
+      zone_short: "restricted area",
+      zone_marker: "⛔ No-Fly Zone",
+      breach_message:
+        "NO-FLY BREACH — Autopilot entered restricted airspace before Standard inference could reroute",
+      approach_phase: "Approaching restricted zone",
+      detour_phase: "Detouring around restricted zone",
+      detour_action: "Rerouting around restricted area",
+      cerebras_summary: (tps) => `Agents responded at ${tps.toLocaleString()} tok/s.`,
+      standard_summary: (tps) => `Autopilot held too long at ${tps} tok/s.`,
+      standard_message: (tps) => `Standard inference at ${tps} tok/s is too slow…`,
+    }
+  );
+}
+
+function shouldUseDetourPath(scenario) {
+  return scenario?.expected_action === "detour_obstacle";
+}
 
 const MISSION_DURATION_MS = 6200;
 const CEREBRAS_TPS = 2150;
@@ -59,6 +123,9 @@ const state = {
   runMode: "replay",
   breachOccurred: false,
   chart: null,
+  flightPaths: null,
+  rerouteActivated: false,
+  rerouteAtProgress: 0.38,
 };
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -149,6 +216,7 @@ function initProviderControls() {
     els.modeStandard.classList.remove("active");
     state.activeProvider = "cerebras";
     updateTPSHighlight("cerebras");
+    if (state.scenario) renderMission();
   });
   
   els.modeStandard.addEventListener("click", () => {
@@ -156,6 +224,7 @@ function initProviderControls() {
     els.modeCerebras.classList.remove("active");
     state.activeProvider = "slow_gpu";
     updateTPSHighlight("slow_gpu");
+    if (state.scenario) renderMission();
   });
   
   updateTPSHighlight("cerebras");
@@ -190,14 +259,24 @@ function computeDecisionDelayMs(result, provider) {
   );
   const baseLatency = Number(result.total_run_time_ms || agentTotal || 800);
   if (provider !== "slow_gpu") return 0;
-  const scaledLatency = baseLatency * (CEREBRAS_TPS / STANDARD_TPS);
-  return Math.max(0, Math.round(scaledLatency - baseLatency));
+  // Agents must arrive just after the drone breaches (~6.2 s flight), not 20+ s later.
+  const targetStandardLatency = MISSION_DURATION_MS + 1400;
+  return Math.max(0, targetStandardLatency - baseLatency);
 }
 
 function decorateProviderResult(result, provider) {
   const decorated = JSON.parse(JSON.stringify(result));
+  const profile = scenarioProfile(state.scenario);
   if (provider !== "slow_gpu") {
     decorated.provider = "cerebras";
+    if (state.scenario?.obstacles?.length) {
+      decorated.run_health = {
+        ...decorated.run_health,
+        label: "Cerebras",
+        tone: "success",
+        summary: profile.cerebras_summary(CEREBRAS_TPS),
+      };
+    }
     return decorated;
   }
 
@@ -213,7 +292,7 @@ function decorateProviderResult(result, provider) {
   decorated.run_health = {
     label: "Standard",
     tone: "danger",
-    summary: "Autopilot held too long at 200 tok/s — safety agents arrived too late to reroute around Mauerpark.",
+    summary: profile.standard_summary(STANDARD_TPS),
   };
   decorated._decision_delay_ms = delay;
   return decorated;
@@ -250,6 +329,9 @@ async function selectScenario(scenarioId) {
   state.missionProgress = 0;
   state.agentStage = -1;
   state.breachOccurred = false;
+  state.flightPaths = null;
+  state.rerouteActivated = false;
+  state.rerouteAtProgress = 0.38;
   
   state.scenario = await getJson(`/api/scenarios/${encodeURIComponent(scenarioId)}`);
   
@@ -358,6 +440,9 @@ async function runAgents() {
   state.missionProgress = 0;
   state.agentStage = -1;
   state.breachOccurred = false;
+  state.flightPaths = buildFlightPaths(state.scenario);
+  state.rerouteActivated = false;
+  state.rerouteAtProgress = 0.38;
   
   // Clear any existing breach overlay
   const overlay = els.mapCanvas.querySelector(".breach-overlay");
@@ -400,7 +485,7 @@ async function runAgents() {
 
     if (provider === "slow_gpu") {
       setMissionStatus("Autopilot", "amber");
-      els.decisionMessage.textContent = `Drone is on autopilot while Standard inference replays at ${STANDARD_TPS} tok/s…`;
+      els.decisionMessage.textContent = scenarioProfile(state.scenario).standard_message(STANDARD_TPS);
       if (decisionDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, decisionDelayMs));
       }
@@ -410,22 +495,23 @@ async function runAgents() {
       renderTrace(result.trace_events, result);
     } else {
       state.result = result;
+      state.rerouteActivated = true;
       renderDecision(result.decision);
       renderAgents(result.agents);
       renderTrace(result.trace_events, result);
-      setMissionStatus("On the way", "green");
+      setMissionStatus("Rerouting", "green");
     }
 
     await animationPromise;
 
     if (provider === "slow_gpu") {
-      setMissionStatus("Delivery paused", "red");
+      setMissionStatus("No-fly breach", "red");
     }
 
     state.missionProgress = 1;
     renderMission();
     renderFrames();
-    setMissionHud(1, provider === "slow_gpu" ? "Route blocked" : "Almost there");
+    setMissionHud(1, provider === "slow_gpu" ? "Restricted zone breach" : "Detour complete");
     updateDeliveryStepper(1);
 
     if (provider === "slow_gpu" && state.scenario?.obstacles?.length) {
@@ -450,7 +536,7 @@ function triggerBreachOverlay() {
   state.breachOccurred = true;
   const overlay = document.createElement("div");
   overlay.className = "breach-overlay";
-  overlay.innerHTML = `<div class="breach-banner">⚠️ Delivery paused — Mauerpark flea market blocks the route and AI arrived too late to reroute safely</div>`;
+  overlay.innerHTML = `<div class="breach-banner">⚠️ ${escapeHtml(scenarioProfile(state.scenario).breach_message)}</div>`;
   els.mapCanvas.appendChild(overlay);
 }
 
@@ -699,8 +785,10 @@ function refreshMissionMapScenario(scenario) {
   // Set geographic data for flight path layers
   setSourceData("facility-zones", featureCollection(buildFacilityFeatures(scenario)));
   setSourceData("service-road", lineFeature(serviceRoadCoordinates(scenario)));
-  setSourceData("route-line", lineFeature(routeCoordinates(scenario)));
-  setSourceData("detour-line", lineFeature(detourCoordinates(scenario)));
+  const paths = buildFlightPaths(scenario);
+  state.flightPaths = paths;
+  setSourceData("route-line", lineFeature(paths.autopilot));
+  setSourceData("detour-line", lineFeature(isStandardProvider() ? [] : paths.detour));
   
   // Restricted Obstacle Zone
   const obstacles = [];
@@ -798,24 +886,24 @@ function createWaypointElement(code, label) {
   return el;
 }
 
-function createObstacleElement() {
+function createObstacleElement(scenario = state.scenario) {
   const el = document.createElement("div");
   el.className = "obstacle-map-marker";
-  el.textContent = "🎪 Mauerpark No-Fly";
+  el.textContent = scenarioProfile(scenario).zone_marker;
   return el;
 }
 
 function updateMissionMap(scenario, decision, progress) {
   if (!state.mapReady || state.mapScenarioId !== scenario.scenario_id) return;
   
-  const animation = animationCoordinates(scenario);
-  const current = pointAlongGeoPath(animation, progress);
+  const current = resolveFlightCoordinate(scenario, progress);
+  const progressPath = resolveProgressPath(scenario, progress);
+  const insideZone = isInsideRestrictedZone(scenario, current);
   
   // Calculate bearing angle to point the drone in direction of movement
   let heading = 0;
   if (progress > 0 && progress < 1) {
-    const nextProgress = Math.min(1, progress + 0.01);
-    const next = pointAlongGeoPath(animation, nextProgress);
+    const next = resolveFlightCoordinate(scenario, Math.min(1, progress + 0.01));
     const dy = next[1] - current[1];
     const dx = next[0] - current[0];
     heading = (Math.atan2(dx, dy) * 180) / Math.PI;
@@ -825,10 +913,19 @@ function updateMissionMap(scenario, decision, progress) {
   if (state.droneMarker) {
     state.droneMarker.setLngLat(current);
     state.droneMarker.setRotation(heading);
+    state.droneMarker.getElement()?.classList.toggle("breach-active", insideZone);
   }
-  setSourceData("drone-point", pointFeature(current));
+  setSourceData("drone-point", pointFeature(current, { insideZone }));
 
-  setSourceData("progress-line", lineFeature(partialGeoPath(animation, progress)));
+  setSourceData("progress-line", lineFeature(progressPath));
+  setSourceData(
+    "detour-line",
+    lineFeature(
+      state.rerouteActivated && !isStandardProvider()
+        ? state.flightPaths?.detour ?? buildFlightPaths(scenario).detour
+        : [],
+    ),
+  );
   
   // Draw red return path from drone back to start if returning
   if (decision && decision.recommended_action === "return_to_start") {
@@ -918,33 +1015,118 @@ function updateTelemetryHUD(progress) {
   updateChart(elapsedSec, row.battery_pct, row.link_quality_pct);
 }
 
-function animationCoordinates(scenario) {
+function buildFlightPaths(scenario) {
   const route = routeCoordinates(scenario);
-  const restrictedArea = scenario.obstacles[0];
-  
-  if (restrictedArea && route.length >= 3) {
-    if (
-      state.result?.decision?.recommended_action === "return_to_start" &&
-      !isStandardProvider()
-    ) {
-      return [...route.slice(0, 3), route[0]];
-    }
-    return [...route.slice(0, 3), lngLat(restrictedArea.location)];
+  const obstacle = scenario.obstacles?.[0];
+  if (!obstacle || route.length < 4) {
+    return { autopilot: route, detour: route, approachFraction: 0.75 };
   }
-  return route;
+
+  const zoneCenter = lngLat(obstacle.location);
+  const half = obstacle.requires_detour_m / 2;
+  const clearance = half + 85;
+
+  // Autopilot: nominal waypoints then straight into the restricted zone center (breach).
+  const autopilot = [route[0], route[1], route[2], zoneCenter];
+
+  // Detour: wide arc east of Alexanderplatz — every bypass point stays outside the zone.
+  const detour = [
+    route[0],
+    route[1],
+    route[2],
+    offsetCoord(obstacle.location, -clearance * 0.55, -clearance * 1.05),
+    offsetCoord(obstacle.location, clearance + 60, -clearance * 0.85),
+    offsetCoord(obstacle.location, clearance + 70, clearance * 0.75),
+    offsetCoord(obstacle.location, clearance * 0.15, clearance * 1.05),
+    route[3],
+  ];
+
+  return { autopilot, detour, approachFraction: 0.75 };
+}
+
+function getFlightPaths(scenario) {
+  return state.flightPaths ?? buildFlightPaths(scenario);
+}
+
+function resolveFlightCoordinate(scenario, progress) {
+  const paths = getFlightPaths(scenario);
+  const routeProgress = clamp(progress, 0, 1);
+
+  if (!scenario.obstacles?.length) {
+    return pointAlongGeoPath(paths.autopilot, routeProgress);
+  }
+
+  if (isStandardProvider()) {
+    return pointAlongGeoPath(paths.autopilot, routeProgress);
+  }
+
+  const switchAt = state.rerouteAtProgress;
+  const approachEnd = paths.approachFraction;
+
+  if (!shouldUseDetourPath(scenario)) {
+    return pointAlongGeoPath(paths.autopilot, routeProgress);
+  }
+
+  if (!state.rerouteActivated) {
+    const t = Math.min(approachEnd, (routeProgress / switchAt) * approachEnd);
+    return pointAlongGeoPath(paths.autopilot, t);
+  }
+
+  if (routeProgress <= switchAt) {
+    return pointAlongGeoPath(paths.autopilot, approachEnd);
+  }
+
+  const detourT = (routeProgress - switchAt) / (1 - switchAt);
+  return pointAlongGeoPath(paths.detour.slice(2), detourT);
+}
+
+function resolveProgressPath(scenario, progress) {
+  const paths = getFlightPaths(scenario);
+  const routeProgress = clamp(progress, 0, 1);
+
+  if (!scenario.obstacles?.length || isStandardProvider()) {
+    return partialGeoPath(paths.autopilot, routeProgress);
+  }
+
+  const switchAt = state.rerouteAtProgress;
+  const approachEnd = paths.approachFraction;
+  const approachPath = partialGeoPath(paths.autopilot, approachEnd);
+
+  if (!shouldUseDetourPath(scenario)) {
+    return partialGeoPath(paths.autopilot, routeProgress);
+  }
+
+  if (!state.rerouteActivated || routeProgress <= switchAt) {
+    const t = Math.min(approachEnd, (routeProgress / switchAt) * approachEnd);
+    return partialGeoPath(paths.autopilot, t);
+  }
+
+  const detourT = (routeProgress - switchAt) / (1 - switchAt);
+  const detourPath = partialGeoPath(paths.detour.slice(2), detourT);
+  return detourPath.length ? [...approachPath, ...detourPath.slice(1)] : approachPath;
+}
+
+function isInsideRestrictedZone(scenario, coord) {
+  const obstacle = scenario.obstacles?.[0];
+  if (!obstacle || !coord) return false;
+  const half = obstacle.requires_detour_m / 2;
+  const [lon, lat] = coord;
+  const center = obstacle.location;
+  const dLat = Math.abs(lat - center.lat) * 111_320;
+  const dLon = Math.abs(lon - center.lon) * 111_320 * Math.cos((center.lat * Math.PI) / 180);
+  return dLat <= half && dLon <= half;
+}
+
+function animationCoordinates(scenario) {
+  const paths = getFlightPaths(scenario);
+  if (isStandardProvider() || !state.rerouteActivated || !shouldUseDetourPath(scenario)) {
+    return paths.autopilot;
+  }
+  return paths.detour;
 }
 
 function detourCoordinates(scenario) {
-  const obstacle = scenario.obstacles[0];
-  if (!obstacle || scenario.waypoints.length < 3) return [];
-  const wp2 = scenario.waypoints[1];
-  const wp3 = scenario.waypoints[2];
-  return [
-    lngLat(wp2),
-    offsetCoord(obstacle.location, 72, -42),
-    offsetCoord(obstacle.location, 126, 18),
-    lngLat(wp3),
-  ];
+  return getFlightPaths(scenario).detour;
 }
 
 function serviceRoadCoordinates(scenario) {
@@ -1080,6 +1262,16 @@ function updateMission(progress, elapsedMs) {
   
   // Real-time signals graph update
   setMissionHud(progress, missionPhase(progress, state.scenario));
+
+  if (
+    isStandardProvider() &&
+    els.runButton.disabled &&
+    state.scenario?.obstacles?.length &&
+    isInsideRestrictedZone(state.scenario, resolveFlightCoordinate(state.scenario, progress))
+  ) {
+    if (!state.breachOccurred) triggerBreachOverlay();
+    setMissionStatus("No-fly breach", "red");
+  }
   
   const stage = Math.floor(progress * 6);
   if (stage !== state.agentStage && !state.result) {
@@ -1104,12 +1296,16 @@ function setMissionHud(progress, phase) {
 function missionPhase(progress, scenario) {
   if (progress <= 0) return "Order confirmed";
   if (!state.result && els.runButton.disabled && isStandardProvider()) return "Autopilot — awaiting AI";
+  const profile = scenarioProfile(scenario);
+  if (state.rerouteActivated && !isStandardProvider() && progress >= state.rerouteAtProgress && shouldUseDetourPath(scenario)) {
+    return profile.detour_phase;
+  }
   if (progress < 0.18) return "Picked up from restaurant";
   if (progress < 0.42) return "Flying to you";
-  if (progress < 0.66) return "Navigating city";
-  if (progress < 0.82) return scenario?.obstacles?.length ? "Checking alternate route" : "Turning onto your street";
-  if (progress < 0.96) return "Verifying safe landing";
-  return "Arriving soon";
+  if (progress < 0.66) return scenario?.obstacles?.length ? profile.approach_phase : "Navigating city";
+  if (progress < 0.82) return scenario?.obstacles?.length ? "Autopilot corridor ahead" : "Turning onto your street";
+  if (progress < 0.96) return isStandardProvider() ? "Entering restricted zone" : "Verifying safe landing";
+  return isStandardProvider() ? "Restricted zone breach" : "Arriving soon";
 }
 
 function renderOrderCard() {
@@ -1408,7 +1604,7 @@ function formatAction(value) {
     continue_mission: "On the way to you",
     return_to_start: "Returning to kitchen",
     hold_position: "Hovering — hold tight",
-    detour_obstacle: "Rerouting around Mauerpark",
+    detour_obstacle: scenarioProfile(state.scenario).detour_action,
     assessing_route: "Checking best route",
   };
   return labels[value] ?? titleCase(value);
@@ -1437,9 +1633,17 @@ function buildMapSvg(scenario, decision, progress) {
   const routePath = pathFromPoints(model.route);
   const progressPath = pathFromPoints(model.progressPoints);
   const returnPath = `M ${model.current.x} ${model.current.y} L ${model.route[0].x} ${model.route[0].y}`;
-  const detourPath = model.obstacle
-    ? `M ${model.route[2].x} ${model.route[2].y} C ${model.obstacle.x + 64} ${model.obstacle.y + 76}, ${model.route[3].x - 70} ${model.route[3].y + 84}, ${model.route[3].x} ${model.route[3].y}`
-    : "";
+  const paths = getFlightPaths(scenario);
+  const svgProject = projector([
+    scenario.start,
+    ...scenario.waypoints,
+    ...(scenario.obstacles ?? []).map((o) => o.location),
+    ...paths.detour.map(([lon, lat]) => ({ lon, lat })),
+  ]);
+  const detourPath =
+    model.obstacle && state.rerouteActivated && !isStandardProvider()
+      ? pathFromPoints(paths.detour.map(([lon, lat]) => svgProject({ lon, lat })))
+      : "";
   const action = decision?.recommended_action ?? (progress > 0 && progress < 1 ? "assessing_route" : scenario.expected_action);
   const scanX = 42 + progress * 540;
   
@@ -1493,7 +1697,7 @@ function buildMapSvg(scenario, decision, progress) {
         <g>
           <circle cx="${model.obstacle.x}" cy="${model.obstacle.y}" r="40" fill="rgba(238, 46, 71, 0.15)" stroke="var(--accent-red)" stroke-width="1.5" stroke-dasharray="4 3"></circle>
           <rect x="${model.obstacle.x - 45}" y="${model.obstacle.y - 12}" width="90" height="24" rx="6" fill="#1a1f2e" stroke="var(--accent-red)" stroke-width="1"></rect>
-          <text x="${model.obstacle.x}" y="${model.obstacle.y + 5}" font-size="8" font-family="var(--font-data)" font-weight="900" fill="var(--accent-red)" text-anchor="middle">MAUERPARK</text>
+          <text x="${model.obstacle.x}" y="${model.obstacle.y + 5}" font-size="8" font-family="var(--font-data)" font-weight="900" fill="var(--accent-red)" text-anchor="middle">ALEXANDERPLATZ</text>
         </g>
       ` : ""}
       
@@ -1516,15 +1720,16 @@ function buildMapModel(scenario, progress) {
   
   const projected = projector(geoPoints);
   const route = [scenario.start, ...scenario.waypoints].map(projected);
-  const animationGeo = animationCoordinates(scenario).map(([lon, lat]) => ({ lon, lat }));
-  const animationPoints = animationGeo.map(projected);
-  const current = pointAlongPath(animationPoints, progress);
+  const progressGeo = resolveProgressPath(scenario, progress).map(([lon, lat]) => ({ lon, lat }));
+  const progressPoints = progressGeo.map(projected);
+  const currentCoord = resolveFlightCoordinate(scenario, progress);
+  const current = projected({ lon: currentCoord[0], lat: currentCoord[1] });
   
   return {
     route,
     obstacle: scenario.obstacles[0] ? projected(scenario.obstacles[0].location) : null,
     current,
-    progressPoints: partialPathPoints(animationPoints, progress),
+    progressPoints,
   };
 }
 

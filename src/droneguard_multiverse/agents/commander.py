@@ -71,15 +71,25 @@ class CommanderAgent:
                 f"Required range before reserve is {reachability['required_range_with_detour_m']} m.",
             ]
             confidence = 0.86
-        elif "obstacle_blocks_nominal_route" in hazards:
+        elif any(
+            hazard in hazards
+            for hazard in (
+                "obstacle_blocks_nominal_route",
+                "restricted_airspace_on_route",
+                "restricted_zone_proximity",
+                "breach_imminent",
+            )
+        ):
             action = "detour_obstacle"
-            operator_message = "Detour around the obstacle, then reassess before committing to the final waypoint."
+            operator_message = (
+                "Reroute around the restricted airspace now — autopilot will breach before the next waypoint."
+            )
             why = [
-                "Vision reports an obstacle on the nominal route.",
-                "Telemetry still preserves the return-to-start reserve.",
-                "A detour avoids the obstacle while keeping the operator in control.",
+                "Vision or zone telemetry confirms restricted airspace on the autopilot corridor.",
+                "Zone Monitor estimates breach within seconds at current speed.",
+                "Battery reserve still covers the detour and delivery completion.",
             ]
-            confidence = 0.74
+            confidence = 0.89
         else:
             action = "continue_mission"
             operator_message = "Continue the mission. Current telemetry preserves the return reserve."

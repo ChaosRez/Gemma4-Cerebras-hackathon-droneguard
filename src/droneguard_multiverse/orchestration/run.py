@@ -100,7 +100,7 @@ class RunOrchestrator:
             )
             self._agent_events(trace_store, scenario, vision.to_dict())
 
-            self._event(trace_store, scenario, "agent_request_started", "Telemetry Agent started.", agent="telemetry")
+            self._event(trace_store, scenario, "agent_request_started", "Zone Monitor started.", agent="telemetry")
             telemetry = self.telemetry_agent.run(
                 scenario=scenario,
                 telemetry_rows=telemetry_rows,
@@ -247,6 +247,8 @@ def build_decision_context(
     score += 30 if any(hazard.get("severity") == "high" for hazard in vision_output.get("hazards", [])) else 0
     score += 35 if not reachability["can_complete_final_waypoint_and_return"] else 0
     score += 10 if any(flag.get("type") == "degraded_link_quality" for flag in telemetry_flags) else 0
+    score += 25 if any(flag.get("type") == "breach_imminent" for flag in telemetry_flags) else 0
+    score += 15 if any(flag.get("type") == "restricted_zone_proximity" for flag in telemetry_flags) else 0
     score += 10 if scenario.obstacles else 0
     score = min(100, score)
     latest = telemetry_rows[-1]

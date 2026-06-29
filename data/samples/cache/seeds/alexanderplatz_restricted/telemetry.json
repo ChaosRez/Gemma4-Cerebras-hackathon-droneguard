@@ -1,0 +1,60 @@
+{
+  "cache_key": "seed:alexanderplatz_restricted:telemetry",
+  "scenario_id": "alexanderplatz_restricted",
+  "agent": "telemetry",
+  "model": "gemma-4-31b",
+  "prompt_version": "v1",
+  "reasoning_effort": null,
+  "mode": "live",
+  "cache_hit": false,
+  "request": {
+    "model": "gemma-4-31b",
+    "messages": [{"role": "user", "content": "Summarize dangerous mission telemetry near Alexanderplatz restricted airspace."}]
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "{\"agent\":\"telemetry\",\"mission_reachability\":{\"can_complete_final_waypoint_and_return\":true,\"estimated_remaining_range_m\":920.0,\"required_range_with_detour_m\":760.0,\"reserve_after_return_m\":160.0,\"safety_buffer_m\":120.0},\"risk_flags\":[{\"type\":\"restricted_zone_proximity\",\"severity\":\"medium\",\"timestamp\":\"2026-06-28T10:00:08Z\",\"observed_value\":46.5,\"threshold\":200.0,\"evidence\":\"Drone is 46 m from Alexanderplatz restricted airspace on the autopilot heading.\"},{\"type\":\"breach_imminent\",\"severity\":\"high\",\"timestamp\":\"2026-06-28T10:00:08Z\",\"observed_value\":6.5,\"threshold\":12.0,\"evidence\":\"At 7.2 m/s the drone breaches the no-fly boundary in ~6.5 s if autopilot is not overridden.\"}],\"summary\":{\"min_battery_pct\":64.0,\"max_speed_mps\":8.4,\"min_link_quality_pct\":79.0,\"distance_to_restricted_zone_m\":46.5,\"seconds_to_breach_at_current_speed\":6.5}}"
+        }
+      }
+    ]
+  },
+  "normalized_output": {
+    "agent": "telemetry",
+    "mission_reachability": {
+      "can_complete_final_waypoint_and_return": true,
+      "estimated_remaining_range_m": 920.0,
+      "required_range_with_detour_m": 760.0,
+      "reserve_after_return_m": 160.0,
+      "safety_buffer_m": 120.0
+    },
+    "risk_flags": [
+      {
+        "type": "restricted_zone_proximity",
+        "severity": "medium",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "observed_value": 46.5,
+        "threshold": 200.0,
+        "evidence": "Drone is 46 m from Alexanderplatz restricted airspace on the autopilot heading."
+      },
+      {
+        "type": "breach_imminent",
+        "severity": "high",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "observed_value": 6.5,
+        "threshold": 12.0,
+        "evidence": "At 7.2 m/s the drone breaches the no-fly boundary in ~6.5 s if autopilot is not overridden."
+      }
+    ],
+    "summary": {
+      "min_battery_pct": 64.0,
+      "max_speed_mps": 8.4,
+      "min_link_quality_pct": 79.0,
+      "distance_to_restricted_zone_m": 46.5,
+      "seconds_to_breach_at_current_speed": 6.5
+    }
+  },
+  "response_time_ms": 663,
+  "created_at": "2026-06-28T10:00:04Z"
+}

@@ -57,6 +57,48 @@ data/samples/<scenario>/
 7. Show the recommendation and final decision report.
 8. Switch briefly to the safe scenario to show `continue_mission`.
 
+## 60-Second Hackathon Demo Script
+
+**Setup:** Open `/demo`, select **Alexanderplatz restricted — autopilot vs AI reroute**, inference mode **Replay**.
+
+### Act 1 — The Order (0:00–0:10)
+
+> "Mustafa's Gemüse Kebap just got an order for Prenzlauer Berg. Drone QD-3 picks up the döner in Kreuzberg and heads north — straight through Alexanderplatz on autopilot."
+
+Show the order card, map with the red **Alexanderplatz No-Fly** zone, and the planned route cutting through it.
+
+### Act 2 — Standard Mode Failure (0:10–0:35)
+
+1. Select **Standard · 200 tok/s**.
+2. Hit **Track order**.
+3. Narrate while the drone flies on autopilot:
+
+> "The autopilot doesn't know about restricted airspace. Three Gemma agents — Route Scan, Zone Monitor, Flight Commander — need to reason over frames and telemetry. But at 200 tokens per second, inference is ten times slower."
+
+Point at the agent timeline latencies scaling up (~7 s total). The drone keeps flying toward the zone.
+
+> "By the time Flight Commander says *reroute around Alexanderplatz*, the drone has already breached the no-fly boundary. Delivery paused."
+
+Show the red breach banner and **No-fly breach** status.
+
+### Act 3 — Cerebras Mode Save (0:35–0:55)
+
+1. Reset scenario (re-select from dropdown).
+2. Select **Cerebras · 2,150 tok/s**.
+3. Hit **Track order** again.
+
+> "Same order, same route, same agents — but Cerebras runs Gemma 4 at 2,150 tokens per second."
+
+Agents complete in under a second. The drone peels off on the yellow detour path around Alexanderplatz.
+
+> "Zone Monitor flags breach in six seconds. Flight Commander issues the detour in time. Döner stays hot. Delivery continues."
+
+Show **Detour complete** and the Commander message: *Reroute southeast around Alexanderplatz restricted airspace now.*
+
+### Closing Line (0:55–1:00)
+
+> "In physical-world systems, inference speed isn't a benchmark — it's the difference between a safe reroute and a regulatory breach. That's DroneGuard on Cerebras."
+
 ## 90-Second Pitch Script
 
 "DroneGuard Multiverse is a web-based safety simulator for drone operations. The operator selects a predefined multi-point mission, watches the simulated drone progress through the route, and sees Vision, Telemetry, and Commander agents reason over frames and flight data.

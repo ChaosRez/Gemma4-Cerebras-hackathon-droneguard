@@ -410,6 +410,18 @@ def test_full_dangerous_replay_run_returns_expected_decision() -> None:
     assert "phoenix" in result["trace_events"][0]["metadata"]
 
 
+def test_full_alexanderplatz_replay_run_returns_expected_decision() -> None:
+    orchestrator = RunOrchestrator(simulate_latency=False)
+
+    result = orchestrator.run_scenario("alexanderplatz_restricted", mode="replay")
+
+    assert result["decision"]["recommended_action"] == "detour_obstacle"
+    assert result["decision_context"]["risk_level"] == "high"
+    assert [agent["agent"] for agent in result["agents"]] == ["vision", "telemetry", "commander"]
+    assert all(agent["mode"] == "replay" for agent in result["agents"])
+    assert result["run_health"]["status"] == "all_replay"
+
+
 def test_run_health_reports_all_live_agents() -> None:
     agents = [
         {"agent": "vision", "status": "complete", "mode": "live", "cache_hit": False, "error": None},

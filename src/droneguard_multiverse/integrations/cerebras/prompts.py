@@ -71,7 +71,8 @@ def telemetry_prompt(scenario: Scenario, rows: list[TelemetryRow], reachability:
         "summary": {"min_battery_pct": 68.0, "max_speed_mps": 6.4},
     }
     return (
-        "You are the DroneGuard Telemetry Agent. Summarize battery, link, speed, and reachability risks. "
+        "You are the DroneGuard Zone Monitor Agent. Focus on restricted-airspace proximity, "
+        "time-to-breach at current speed, and whether a detour still fits within battery reserve. "
         "Return a complete telemetry agent object. Do not omit required fields. "
         f"Use this exact shape: {compact_json(contract)}. "
         f"Scenario: {scenario.label}. Reachability: {compact_json(reachability)}. "

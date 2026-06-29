@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 from typing import Any
 
-from droneguard_multiverse.schemas.scenario import Scenario
+from droneguard_multiverse.schemas.scenario import GeoPoint, Scenario
 from droneguard_multiverse.schemas.telemetry import TelemetryRow
 
 
@@ -52,12 +53,35 @@ def risk_level_from_score(score: int) -> str:
     return "low"
 
 
-def telemetry_summary(rows: list[TelemetryRow]) -> dict[str, float]:
-    return {
+def haversine_distance_m(a: GeoPoint, b: GeoPoint) -> float:
+    radius_m = 6_371_000.0
+    lat1 = math.radians(a.lat)
+    lat2 = math.radians(b.lat)
+    dlat = lat2 - lat1
+    dlon = math.radians(b.lon - a.lon)
+    sin_lat = math.sin(dlat / 2)
+    sin_lon = math.sin(dlon / 2)
+    root = sin_lat * sin_lat + math.cos(lat1) * math.cos(lat2) * sin_lon * sin_lon
+    return radius_m * 2 * math.atan2(math.sqrt(root), math.sqrt(max(0.0, 1 - root)))
+
+
+def telemetry_summary(rows: list[TelemetryRow], scenario: Scenario | None = None) -> dict[str, float]:
+    latest = rows[-1]
+    summary = {
         "min_battery_pct": round(min(row.battery_pct for row in rows), 1),
         "max_speed_mps": round(max(row.speed_mps for row in rows), 1),
         "min_link_quality_pct": round(min(row.link_quality_pct for row in rows), 1),
     }
+    if scenario and scenario.obstacles:
+        obstacle = scenario.obstacles[0]
+        distance_m = haversine_distance_m(
+            GeoPoint(lat=latest.lat, lon=latest.lon),
+            obstacle.location,
+        )
+        speed_mps = max(latest.speed_mps, 0.1)
+        summary["distance_to_restricted_zone_m"] = round(distance_m, 1)
+        summary["seconds_to_breach_at_current_speed"] = round(distance_m / speed_mps, 1)
+    return summary
 
 
 def telemetry_risk_flags(
@@ -105,15 +129,50 @@ def telemetry_risk_flags(
                 "evidence": "Ground speed is high for a constrained inspection corridor.",
             }
         )
-    if scenario.obstacles and reachability.detour_distance_m > 0:
-        flags.append(
-            {
-                "type": "obstacle_detour_required",
-                "severity": "medium",
-                "timestamp": latest.timestamp,
-                "observed_value": reachability.detour_distance_m,
-                "threshold": 0.0,
-                "evidence": "Scenario route includes an obstacle that requires a detour.",
-            }
+    if scenario.obstacles:
+        obstacle = scenario.obstacles[0]
+        distance_m = haversine_distance_m(
+            GeoPoint(lat=latest.lat, lon=latest.lon),
+            obstacle.location,
         )
+        speed_mps = max(latest.speed_mps, 0.1)
+        seconds_to_breach = distance_m / speed_mps
+        if distance_m <= 200.0:
+            flags.append(
+                {
+                    "type": "restricted_zone_proximity",
+                    "severity": "medium",
+                    "timestamp": latest.timestamp,
+                    "observed_value": round(distance_m, 1),
+                    "threshold": 200.0,
+                    "evidence": (
+                        f"Drone is {round(distance_m)} m from restricted airspace on the autopilot heading."
+                    ),
+                }
+            )
+        if seconds_to_breach <= 12.0 and latest.speed_mps > 0:
+            flags.append(
+                {
+                    "type": "breach_imminent",
+                    "severity": "high",
+                    "timestamp": latest.timestamp,
+                    "observed_value": round(seconds_to_breach, 1),
+                    "threshold": 12.0,
+                    "evidence": (
+                        f"At {latest.speed_mps:.1f} m/s the drone breaches the no-fly boundary in "
+                        f"~{round(seconds_to_breach, 1)} s if autopilot is not overridden."
+                    ),
+                }
+            )
+        elif reachability.detour_distance_m > 0:
+            flags.append(
+                {
+                    "type": "obstacle_detour_required",
+                    "severity": "medium",
+                    "timestamp": latest.timestamp,
+                    "observed_value": reachability.detour_distance_m,
+                    "threshold": 0.0,
+                    "evidence": "Scenario route includes restricted airspace that requires a detour.",
+                }
+            )
     return flags

@@ -112,5 +112,66 @@
         "height": 360
       }
     ]
+  },
+  {
+    "scenario_id": "alexanderplatz_restricted",
+    "label": "Alexanderplatz restricted — autopilot vs AI reroute",
+    "risk_label": "high",
+    "expected_action": "detour_obstacle",
+    "mission_goal": "Deliver Mustafa's döner order to Prenzlauer Berg. Autopilot tracks the direct corridor through Alexanderplatz — AI must reroute around the restricted airspace before breach.",
+    "start": {"lat": 52.4934, "lon": 13.3880},
+    "waypoints": [
+      {"id": "wp_1", "lat": 52.5020, "lon": 13.3950, "label": "Spittelmarkt Air Lane"},
+      {"id": "wp_2", "lat": 52.5150, "lon": 13.4080, "label": "Karl-Liebknecht-Str Approach"},
+      {"id": "wp_3", "lat": 52.5330, "lon": 13.4092, "label": "Kastanienallee 82 — Rooftop Pad"}
+    ],
+    "obstacles": [
+      {
+        "id": "obs_alex",
+        "type": "restricted_airspace",
+        "location": {"lat": 52.5219, "lon": 13.4132},
+        "requires_detour_m": 140.0,
+        "first_visible_frame_id": "frame_003"
+      }
+    ],
+    "assets": {
+      "frames_dir": "data/samples/dangerous/frames",
+      "telemetry_csv": "data/samples/alexanderplatz/telemetry.csv"
+    },
+    "route_metrics": {
+      "current_waypoint_id": "wp_2",
+      "remaining_mission_distance_m": 620.0,
+      "distance_to_final_waypoint_m": 280.0,
+      "return_to_start_distance_m": 340.0,
+      "return_after_final_m": 340.0,
+      "detour_distance_m": 140.0,
+      "safety_buffer_m": 120.0
+    },
+    "frame_metadata": [
+      {
+        "frame_id": "frame_001",
+        "timestamp": "2026-06-28T10:00:01Z",
+        "source_path": "data/samples/dangerous/frames/frame_001.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      },
+      {
+        "frame_id": "frame_002",
+        "timestamp": "2026-06-28T10:00:04Z",
+        "source_path": "data/samples/dangerous/frames/frame_002.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      },
+      {
+        "frame_id": "frame_003",
+        "timestamp": "2026-06-28T10:00:08Z",
+        "source_path": "data/samples/dangerous/frames/frame_003.png",
+        "mime_type": "image/png",
+        "width": 640,
+        "height": 360
+      }
+    ]
   }
 ]

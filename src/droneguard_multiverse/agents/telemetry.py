@@ -66,5 +66,5 @@ class TelemetryAgent:
                 "safety_buffer_m": reachability.safety_buffer_m,
             },
             "risk_flags": telemetry_risk_flags(scenario, telemetry_rows, reachability),
-            "summary": telemetry_summary(telemetry_rows),
+            "summary": telemetry_summary(telemetry_rows, scenario),
         }
