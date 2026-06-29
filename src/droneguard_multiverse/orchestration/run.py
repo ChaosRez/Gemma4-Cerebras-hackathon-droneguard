@@ -63,100 +63,114 @@ class RunOrchestrator:
     def run_scenario(self, scenario_id: str, mode: str = "replay") -> dict[str, Any]:
         if mode not in {"replay", "live", "refresh"}:
             raise ValueError("mode must be replay, live, or refresh")
-        scenario = load_scenario(scenario_id, self.data_dir)
-        telemetry_rows = self._load_telemetry(scenario)
-        run_id = _new_run_id()
-        trace = TraceStore(run_id, self.trace_dir)
-        started = perf_counter()
+        
+        from opentelemetry import trace
+        tracer = trace.get_tracer("droneguard-multiverse")
+        
+        with tracer.start_as_current_span("droneguard.orchestrator.run_scenario") as span:
+            span.set_attribute("scenario_id", scenario_id)
+            span.set_attribute("mode", mode)
+            
+            scenario = load_scenario(scenario_id, self.data_dir)
+            telemetry_rows = self._load_telemetry(scenario)
+            run_id = _new_run_id()
+            trace_store = TraceStore(run_id, self.trace_dir)
+            started = perf_counter()
 
-        self._event(
-            trace,
-            scenario,
-            "scenario_loaded",
-            f"Loaded {scenario.label}.",
-            metadata={
+            self._event(
+                trace_store,
+                scenario,
+                "scenario_loaded",
+                f"Loaded {scenario.label}.",
+                metadata={
+                    "mode": mode,
+                    "expected_action": scenario.expected_action,
+                    "agent_runtime": getattr(self.client, "agent_runtime", "unknown"),
+                    "phoenix": self.phoenix_status.to_dict(),
+                },
+            )
+
+            self._event(trace_store, scenario, "agent_request_started", "Vision Agent started.", agent="vision")
+            vision = self.vision_agent.run(
+                scenario=scenario,
+                cache=self.cache,
+                client=self.client,
+                mode=mode,
+                simulate_latency=self.simulate_latency,
+            )
+            self._agent_events(trace_store, scenario, vision.to_dict())
+
+            self._event(trace_store, scenario, "agent_request_started", "Telemetry Agent started.", agent="telemetry")
+            telemetry = self.telemetry_agent.run(
+                scenario=scenario,
+                telemetry_rows=telemetry_rows,
+                cache=self.cache,
+                client=self.client,
+                mode=mode,
+                simulate_latency=self.simulate_latency,
+            )
+            self._agent_events(trace_store, scenario, telemetry.to_dict())
+
+            decision_context = build_decision_context(
+                scenario,
+                telemetry_rows,
+                vision.normalized_output,
+                telemetry.normalized_output,
+            )
+
+            self._event(trace_store, scenario, "agent_request_started", "Commander Agent started.", agent="commander")
+            commander = self.commander_agent.run(
+                scenario=scenario,
+                decision_context=decision_context,
+                vision_output=vision.normalized_output,
+                telemetry_output=telemetry.normalized_output,
+                cache=self.cache,
+                client=self.client,
+                mode=mode,
+                simulate_latency=self.simulate_latency,
+            )
+            self._agent_events(trace_store, scenario, commander.to_dict())
+            self._event(
+                trace_store,
+                scenario,
+                "commander_decision_selected",
+                f"Commander selected {commander.normalized_output['recommended_action']}.",
+                agent="commander",
+                duration_ms=commander.response_time_ms,
+                cache_hit=commander.cache_hit,
+                metadata={"recommended_action": commander.normalized_output["recommended_action"]},
+            )
+
+            report = build_decision_report(run_id, decision_context, commander.normalized_output)
+            total_ms = int((perf_counter() - started) * 1000)
+            self._event(
+                trace_store,
+                scenario,
+                "run_completed",
+                "Run completed.",
+                duration_ms=total_ms,
+                metadata={"total_ms": total_ms, "risk_level": decision_context["risk_level"]},
+            )
+
+            agents = [vision.to_dict(), telemetry.to_dict(), commander.to_dict()]
+            result_payload = {
+                "run_id": run_id,
                 "mode": mode,
-                "expected_action": scenario.expected_action,
-                "agent_runtime": getattr(self.client, "agent_runtime", "unknown"),
-                "phoenix": self.phoenix_status.to_dict(),
-            },
-        )
-
-        self._event(trace, scenario, "agent_request_started", "Vision Agent started.", agent="vision")
-        vision = self.vision_agent.run(
-            scenario=scenario,
-            cache=self.cache,
-            client=self.client,
-            mode=mode,
-            simulate_latency=self.simulate_latency,
-        )
-        self._agent_events(trace, scenario, vision.to_dict())
-
-        self._event(trace, scenario, "agent_request_started", "Telemetry Agent started.", agent="telemetry")
-        telemetry = self.telemetry_agent.run(
-            scenario=scenario,
-            telemetry_rows=telemetry_rows,
-            cache=self.cache,
-            client=self.client,
-            mode=mode,
-            simulate_latency=self.simulate_latency,
-        )
-        self._agent_events(trace, scenario, telemetry.to_dict())
-
-        decision_context = build_decision_context(
-            scenario,
-            telemetry_rows,
-            vision.normalized_output,
-            telemetry.normalized_output,
-        )
-
-        self._event(trace, scenario, "agent_request_started", "Commander Agent started.", agent="commander")
-        commander = self.commander_agent.run(
-            scenario=scenario,
-            decision_context=decision_context,
-            vision_output=vision.normalized_output,
-            telemetry_output=telemetry.normalized_output,
-            cache=self.cache,
-            client=self.client,
-            mode=mode,
-            simulate_latency=self.simulate_latency,
-        )
-        self._agent_events(trace, scenario, commander.to_dict())
-        self._event(
-            trace,
-            scenario,
-            "commander_decision_selected",
-            f"Commander selected {commander.normalized_output['recommended_action']}.",
-            agent="commander",
-            duration_ms=commander.response_time_ms,
-            cache_hit=commander.cache_hit,
-            metadata={"recommended_action": commander.normalized_output["recommended_action"]},
-        )
-
-        report = build_decision_report(run_id, decision_context, commander.normalized_output)
-        total_ms = int((perf_counter() - started) * 1000)
-        self._event(
-            trace,
-            scenario,
-            "run_completed",
-            "Run completed.",
-            duration_ms=total_ms,
-            metadata={"total_ms": total_ms, "risk_level": decision_context["risk_level"]},
-        )
-
-        agents = [vision.to_dict(), telemetry.to_dict(), commander.to_dict()]
-        return {
-            "run_id": run_id,
-            "mode": mode,
-            "scenario": self.get_scenario_detail(scenario_id),
-            "agents": agents,
-            "run_health": build_run_health(agents, requested_mode=mode),
-            "decision_context": decision_context,
-            "decision": commander.normalized_output,
-            "report": report,
-            "trace_events": trace.to_list(),
-            "total_run_time_ms": total_ms,
-        }
+                "scenario": self.get_scenario_detail(scenario_id),
+                "agents": agents,
+                "run_health": build_run_health(agents, requested_mode=mode),
+                "decision_context": decision_context,
+                "decision": commander.normalized_output,
+                "report": report,
+                "trace_events": trace_store.to_list(),
+                "total_run_time_ms": total_ms,
+            }
+            
+            span.set_attribute("output.value", f"Commander Action: {commander.normalized_output['recommended_action']}")
+            span.set_attribute("risk_level", decision_context["risk_level"])
+            span.set_attribute("total_latency_ms", total_ms)
+            
+            return result_payload
 
     def _load_telemetry(self, scenario: Scenario) -> list[TelemetryRow]:
         return load_telemetry_csv(scenario.resolve_asset_path(scenario.assets.telemetry_csv, self.data_dir))
