@@ -5,3 +5,6 @@ __pycache__/
 *.py[cod]
 data/runs/run_*.jsonl
 data/samples/cache/entries/
+
+# Node.js
+node_modules/

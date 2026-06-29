@@ -81,7 +81,10 @@ class DroneGuardHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _serve_web(self, path: str) -> None:
-        file_path = WEB_DIR / "index.html" if path == "/" else WEB_DIR / unquote(path.lstrip("/"))
+        if path == "/demo":
+            file_path = WEB_DIR / "demo.html"
+        else:
+            file_path = WEB_DIR / "index.html" if path == "/" else WEB_DIR / unquote(path.lstrip("/"))
         self._serve_file(file_path)
 
     def _serve_file(self, file_path: Path) -> None:
