@@ -453,5 +453,5 @@ def test_run_health_flags_partial_fallback() -> None:
 def test_scenario_detail_includes_frame_urls() -> None:
     detail = RunOrchestrator(simulate_latency=False).get_scenario_detail("alexanderplatz_restricted")
 
-    assert detail["frame_urls"][0]["url"] == "/samples/dangerous/frames/frame_001.png"
+    assert detail["frame_urls"][0]["url"] == "/samples/alexanderplatz/frames/frame_001.png"
     assert load_scenario("alexanderplatz_restricted").scenario_id == detail["scenario_id"]

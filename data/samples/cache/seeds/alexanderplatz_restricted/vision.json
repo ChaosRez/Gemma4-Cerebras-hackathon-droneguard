@@ -15,7 +15,7 @@
     "choices": [
       {
         "message": {
-          "content": "{\"agent\":\"vision\",\"hazards\":[{\"type\":\"restricted_airspace_on_route\",\"severity\":\"high\",\"confidence\":0.91,\"frame_ids\":[\"frame_003\"],\"evidence\":\"Alexanderplatz government no-fly zone is visible ahead; autopilot corridor cuts through the red restricted boundary.\"}],\"route_observations\":[{\"frame_id\":\"frame_003\",\"description\":\"TV Tower and Alexanderplatz plaza sit inside the restricted polygon; safe passage requires a southeast detour.\",\"confidence\":0.86}],\"uncertainties\":[\"Exact boundary clearance from this altitude cannot be confirmed from a single frame.\"]}"
+          "content": "{\"agent\":\"vision\",\"hazards\":[{\"type\":\"restricted_airspace_on_route\",\"severity\":\"high\",\"confidence\":0.91,\"frame_ids\":[\"frame_003\"],\"evidence\":\"Alexanderplatz plaza is directly ahead with dense surface traffic, tram corridors, public-event barriers, and the TV Tower landmark confirming the drone is approaching the restricted civic airspace.\"}],\"route_observations\":[{\"frame_id\":\"frame_003\",\"description\":\"The camera view shows the route crossing the Alexanderplatz plaza area; safe passage requires a southeast detour before entering the restricted corridor.\",\"confidence\":0.86}],\"uncertainties\":[\"Exact boundary clearance from this altitude cannot be confirmed from a single frame.\"]}"
         }
       }
     ]
@@ -28,13 +28,13 @@
         "severity": "high",
         "confidence": 0.91,
         "frame_ids": ["frame_003"],
-        "evidence": "Alexanderplatz government no-fly zone is visible ahead; autopilot corridor cuts through the red restricted boundary."
+        "evidence": "Alexanderplatz plaza is directly ahead with dense surface traffic, tram corridors, public-event barriers, and the TV Tower landmark confirming the drone is approaching the restricted civic airspace."
       }
     ],
     "route_observations": [
       {
         "frame_id": "frame_003",
-        "description": "TV Tower and Alexanderplatz plaza sit inside the restricted polygon; safe passage requires a southeast detour.",
+        "description": "The camera view shows the route crossing the Alexanderplatz plaza area; safe passage requires a southeast detour before entering the restricted corridor.",
         "confidence": 0.86
       }
     ],

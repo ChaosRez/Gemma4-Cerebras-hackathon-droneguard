@@ -21,7 +21,7 @@
       }
     ],
     "assets": {
-      "frames_dir": "data/samples/dangerous/frames",
+      "frames_dir": "data/samples/alexanderplatz/frames",
       "telemetry_csv": "data/samples/alexanderplatz/telemetry.csv"
     },
     "route_metrics": {
@@ -37,7 +37,7 @@
       {
         "frame_id": "frame_001",
         "timestamp": "2026-06-28T10:00:01Z",
-        "source_path": "data/samples/dangerous/frames/frame_001.png",
+        "source_path": "data/samples/alexanderplatz/frames/frame_001.png",
         "mime_type": "image/png",
         "width": 640,
         "height": 360
@@ -45,7 +45,7 @@
       {
         "frame_id": "frame_002",
         "timestamp": "2026-06-28T10:00:04Z",
-        "source_path": "data/samples/dangerous/frames/frame_002.png",
+        "source_path": "data/samples/alexanderplatz/frames/frame_002.png",
         "mime_type": "image/png",
         "width": 640,
         "height": 360
@@ -53,7 +53,7 @@
       {
         "frame_id": "frame_003",
         "timestamp": "2026-06-28T10:00:08Z",
-        "source_path": "data/samples/dangerous/frames/frame_003.png",
+        "source_path": "data/samples/alexanderplatz/frames/frame_003.png",
         "mime_type": "image/png",
         "width": 640,
         "height": 360

@@ -1977,18 +1977,23 @@ function renderFrames() {
   if (!scenario) return;
   els.frameStrip.innerHTML = "";
   
-  const frameMetadata = scenario.frame_metadata ?? [];
-  for (const frame of frameMetadata) {
+  const activeIndex = activeFrameIndex(state.missionProgress, scenario.frame_urls?.length ?? 0);
+  for (const [index, frame] of (scenario.frame_urls ?? []).entries()) {
     const card = document.createElement("div");
-    card.className = "frame-card";
+    card.className = `frame-card${index === activeIndex ? " active" : ""}`;
     
-    const url = `/samples/${scenario.scenario_id}/frames/${frame.frame_id}.jpg`;
+    const timestamp = frame.timestamp ? ` · ${frame.timestamp.slice(11, 19)}` : "";
     card.innerHTML = `
-      <img src="${url}" alt="Frame ${frame.frame_id}" onerror="this.src='/samples/dangerous/frames/frame_001.png'" />
-      <span>${escapeHtml(frame.frame_id)}</span>
+      <img src="${frame.url}" alt="${escapeHtml(frame.frame_id)}" />
+      <span>${escapeHtml(frame.frame_id)}${escapeHtml(timestamp)}</span>
     `;
     els.frameStrip.append(card);
   }
+}
+
+function activeFrameIndex(progress, frameCount) {
+  if (!frameCount) return -1;
+  return Math.min(frameCount - 1, Math.floor(clamp(progress, 0, 0.999) * frameCount));
 }
 
 function renderTrace(events, result = state.result) {
