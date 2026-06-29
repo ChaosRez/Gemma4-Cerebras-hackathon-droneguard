@@ -20,6 +20,13 @@ from droneguard_multiverse.schemas.scenario import load_scenario
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _disable_external_langsmith_for_tests(monkeypatch) -> None:
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.setenv("LANGSMITH_PROJECT", "droneguard-multiverse")
+
+
 def test_image_encoder_accepts_png_frame() -> None:
     frame = DATA_DIR / "safe" / "frames" / "frame_001.png"
 
@@ -93,6 +100,7 @@ def test_pydantic_ai_model_settings_include_reasoning_effort() -> None:
 
 def test_langsmith_config_is_disabled_without_tracing(monkeypatch) -> None:
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.setenv("LANGSMITH_ENDPOINT", "https://eu.api.smith.langchain.com")
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     monkeypatch.setenv("LANGSMITH_PROJECT", "droneguard-multiverse")
 
@@ -100,6 +108,7 @@ def test_langsmith_config_is_disabled_without_tracing(monkeypatch) -> None:
 
     assert status.enabled is False
     assert status.project == "droneguard-multiverse"
+    assert status.endpoint == "https://eu.api.smith.langchain.com"
 
 
 def test_seed_cache_replay_returns_recorded_latency() -> None:

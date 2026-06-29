@@ -122,7 +122,7 @@ The `scenario_loaded` event includes observability metadata:
 - selected run mode
 - selected agent runtime
 - expected Commander action
-- LangSmith project and enablement status
+- LangSmith project, endpoint, and enablement status
 
 ## UI Quality Bar
 

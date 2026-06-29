@@ -113,7 +113,7 @@ By default, live mode uses the raw Cerebras Chat Completions wrapper. To route t
 DRONEGUARD_AGENT_RUNTIME=pydantic_ai
 ```
 
-Vision remains on the raw Cerebras client for multimodal image messages. To export Pydantic AI traces to LangSmith, set `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT`.
+Vision remains on the raw Cerebras client for multimodal image messages. To export Pydantic AI traces to LangSmith, set `LANGSMITH_TRACING=true`, `LANGSMITH_ENDPOINT`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT`.
 
 Exported shell variables take precedence over values in `.env`.
 

@@ -156,8 +156,9 @@ Enable it with:
 
 ```bash
 LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
 LANGSMITH_API_KEY=<key>
-LANGSMITH_PROJECT=droneguard-multiverse
+LANGSMITH_PROJECT="DroneGuard Multiverse"
 ```
 
 At orchestrator startup, DroneGuard calls `configure_langsmith()`. When tracing is enabled and dependencies are installed, it configures LangSmith/OpenTelemetry and calls `pydantic_ai.Agent.instrument_all()`. The local trace event `scenario_loaded` records whether LangSmith was enabled, disabled, or unavailable.
@@ -214,8 +215,9 @@ DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions
 # DRONEGUARD_AGENT_RUNTIME=pydantic_ai
 
 LANGSMITH_TRACING=false
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
 LANGSMITH_API_KEY=
-LANGSMITH_PROJECT=droneguard-multiverse
+LANGSMITH_PROJECT="DroneGuard Multiverse"
 ```
 
 Never commit `.env` files or API keys.
