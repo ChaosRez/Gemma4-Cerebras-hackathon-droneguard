@@ -97,7 +97,7 @@ The repository now contains a runnable hackathon prototype:
 
 ```bash
 python scripts/generate_sample_assets.py
-PYTHONPATH=src python -m droneguard_multiverse.api.routes --host 127.0.0.1 --port 8000
+PYTHONPATH=src uv run python -m droneguard_multiverse.api.routes --host 127.0.0.1 --port 8000
 ```
 
 Open <http://127.0.0.1:8000>. Replay mode works without credentials. Live and refresh modes require:
@@ -107,7 +107,7 @@ cp .env.example .env
 # then set CEREBRAS_API_KEY in .env
 ```
 
-By default, live mode uses the raw Cerebras Chat Completions wrapper. To route text-only Telemetry and Commander calls through Pydantic AI structured outputs, set:
+By default, live mode routes structured text agents through Pydantic AI's Cerebras provider. Keep this value in `.env`:
 
 ```bash
 DRONEGUARD_AGENT_RUNTIME=pydantic_ai

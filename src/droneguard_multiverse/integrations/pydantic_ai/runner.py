@@ -25,7 +25,7 @@ def run_text_agent(
 
     prompt = messages_to_text_prompt(messages)
     try:
-        from pydantic_ai import Agent
+        from pydantic_ai import Agent, ToolOutput
         from pydantic_ai.models.cerebras import CerebrasModel
         from pydantic_ai.providers.cerebras import CerebrasProvider
     except ImportError as exc:
@@ -34,10 +34,17 @@ def run_text_agent(
         ) from exc
 
     model = CerebrasModel(model_name, provider=CerebrasProvider(api_key=api_key))
+    output_spec = _output_spec(output_type, retries, ToolOutput)
     try:
-        agent = Agent(model, output_type=output_type or str, retries=retries)
+        agent = Agent(
+            model,
+            output_type=output_spec,
+            instructions=_agent_instructions(output_type),
+            retries=retries,
+            name=_agent_name(output_type),
+        )
     except TypeError:
-        agent = Agent(model, result_type=output_type or str, retries=retries)
+        agent = Agent(model, result_type=output_spec, retries=retries)
 
     started = time.time()
     try:
@@ -52,6 +59,8 @@ def run_text_agent(
         "created": int(started),
         "model": model_name,
         "provider": "pydantic_ai:cerebras",
+        "pydantic_ai_output_mode": "tool" if output_type is not None else "text",
+        "pydantic_ai_output_type": getattr(output_type, "__name__", None),
         "choices": [
             {
                 "index": 0,
@@ -83,6 +92,62 @@ def model_settings(temperature: float, reasoning_effort: str | None) -> dict[str
     if reasoning_effort:
         settings["openai_reasoning_effort"] = reasoning_effort
     return settings
+
+
+def _output_spec(output_type: type[Any] | None, retries: int, tool_output_type: type[Any]) -> Any:
+    if output_type is None:
+        return str
+    return tool_output_type(
+        output_type,
+        name=_output_tool_name(output_type),
+        description=_output_description(output_type),
+        max_retries=retries,
+    )
+
+
+def _agent_name(output_type: type[Any] | None) -> str:
+    if output_type is None:
+        return "droneguard_text_agent"
+    return f"droneguard_{_snake_case(getattr(output_type, '__name__', 'structured_output'))}"
+
+
+def _output_tool_name(output_type: type[Any]) -> str:
+    return f"return_{_snake_case(getattr(output_type, '__name__', 'structured_output'))}"
+
+
+def _output_description(output_type: type[Any]) -> str:
+    name = getattr(output_type, "__name__", "structured output")
+    if name == "CommanderAgentOutput":
+        return (
+            "Return the complete CommanderAgentOutput object. Do not return a shortcut like "
+            "{\"action\":\"continue_mission\"}; use recommended_action and include confidence, "
+            "operator_message, why, rejected_actions, and evidence_refs."
+        )
+    if name == "TelemetryAgentOutput":
+        return (
+            "Return the complete TelemetryAgentOutput object with agent, mission_reachability, "
+            "risk_flags, and numeric summary fields."
+        )
+    return f"Return one complete {name} object with every required field populated."
+
+
+def _agent_instructions(output_type: type[Any] | None) -> str | None:
+    if output_type is None:
+        return None
+    return (
+        "Use the configured Pydantic AI output tool for the final answer. "
+        "Do not answer with plain text, Markdown fences, or a partial JSON object. "
+        "Populate every required field in the output model using only the supplied mission evidence."
+    )
+
+
+def _snake_case(value: str) -> str:
+    output: list[str] = []
+    for index, char in enumerate(value):
+        if char.isupper() and index:
+            output.append("_")
+        output.append(char.lower())
+    return "".join(output)
 
 
 def _content_to_text(content: Any) -> str:

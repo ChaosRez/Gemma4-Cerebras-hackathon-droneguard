@@ -14,6 +14,6 @@ Responsibilities:
 - expose helpers for Vision, Telemetry, and Commander requests
 - pass raw request and response objects to the cache and observability layers
 
-The default runtime is the raw Cerebras Chat Completions request path. `DRONEGUARD_AGENT_RUNTIME=pydantic_ai` routes text-only live requests through `integrations/pydantic_ai/`; multimodal Vision requests still use the raw client.
+The default structured text runtime is Pydantic AI's Cerebras provider. Multimodal Vision requests still use the raw Cerebras Chat Completions client because they send image content parts.
 
 See `docs/CEREBRAS_INTEGRATION.md` before implementing this layer.

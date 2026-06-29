@@ -10,6 +10,7 @@ from droneguard_multiverse.config import load_project_env
 
 
 DEFAULT_MODEL = "gemma-4-31b"
+DEFAULT_AGENT_RUNTIME = "pydantic_ai"
 DEFAULT_CHAT_COMPLETIONS_URL = "https://api.cerebras.ai/v1/chat/completions"
 
 
@@ -31,7 +32,7 @@ class CerebrasClient:
         self.model = model or os.getenv("DRONEGUARD_MODEL", DEFAULT_MODEL)
         self.chat_url = chat_url or os.getenv("CEREBRAS_CHAT_COMPLETIONS_URL", DEFAULT_CHAT_COMPLETIONS_URL)
         self.timeout_s = timeout_s
-        self.agent_runtime = os.getenv("DRONEGUARD_AGENT_RUNTIME", "cerebras_chat_completions").strip().lower()
+        self.agent_runtime = os.getenv("DRONEGUARD_AGENT_RUNTIME", DEFAULT_AGENT_RUNTIME).strip().lower()
 
     def chat_completion(
         self,
@@ -43,7 +44,7 @@ class CerebrasClient:
     ) -> dict[str, Any]:
         if not self.api_key:
             raise CerebrasClientError("CEREBRAS_API_KEY is not set")
-        if self.agent_runtime == "pydantic_ai":
+        if self.effective_agent_runtime(messages, output_type) == "pydantic_ai":
             try:
                 from droneguard_multiverse.integrations.pydantic_ai.runner import run_text_agent
 
@@ -126,6 +127,13 @@ class CerebrasClient:
         if isinstance(response, dict):
             return response
         raise CerebrasClientError("Cerebras OpenAI-compatible response was not JSON serializable")
+
+    def effective_agent_runtime(self, messages: list[dict[str, Any]], output_type: type[Any] | None = None) -> str:
+        if _contains_non_text_content(messages):
+            return "cerebras_chat_completions"
+        if output_type is not None:
+            return "pydantic_ai"
+        return "pydantic_ai" if self.agent_runtime == "pydantic_ai" else "cerebras_chat_completions"
 
 
 def assistant_text(response: dict[str, Any]) -> str:

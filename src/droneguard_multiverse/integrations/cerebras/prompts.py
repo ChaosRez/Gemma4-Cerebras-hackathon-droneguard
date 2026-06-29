@@ -51,9 +51,29 @@ def vision_prompt(scenario: Scenario) -> str:
 
 def telemetry_prompt(scenario: Scenario, rows: list[TelemetryRow], reachability: dict[str, Any]) -> str:
     sample = [row.to_dict() for row in rows[-4:]]
+    contract = {
+        "agent": "telemetry",
+        "mission_reachability": {
+            "can_complete_final_waypoint_and_return": True,
+            "estimated_remaining_range_m": 1200.0,
+            "required_range_with_detour_m": 700.0,
+            "reserve_after_return_m": 500.0,
+            "safety_buffer_m": 120.0,
+        },
+        "risk_flags": [
+            {
+                "type": "insufficient_battery_for_detour_and_return",
+                "severity": "high",
+                "timestamp": "2026-06-28T10:00:08Z",
+                "evidence": "Short telemetry evidence sentence.",
+            }
+        ],
+        "summary": {"min_battery_pct": 68.0, "max_speed_mps": 6.4},
+    }
     return (
         "You are the DroneGuard Telemetry Agent. Summarize battery, link, speed, and reachability risks. "
-        "Return compact JSON only matching the telemetry agent contract. "
+        "Return a complete telemetry agent object. Do not omit required fields. "
+        f"Use this exact shape: {compact_json(contract)}. "
         f"Scenario: {scenario.label}. Reachability: {compact_json(reachability)}. "
         f"Recent telemetry rows: {compact_json(sample)}."
     )
@@ -65,9 +85,21 @@ def commander_prompt(
     vision_output: dict[str, Any],
     telemetry_output: dict[str, Any],
 ) -> str:
+    contract = {
+        "agent": "commander",
+        "recommended_action": "continue_mission",
+        "confidence": 0.81,
+        "operator_message": "Short operator-facing decision message.",
+        "why": ["Short evidence-backed reason."],
+        "rejected_actions": [{"action": "return_to_start", "reason": "Short rejection reason."}],
+        "evidence_refs": ["telemetry.latest"],
+    }
     return (
         "You are the DroneGuard Commander Agent. Choose the safest operator action from this enum: "
-        f"{', '.join(ACTIONS)}. Return compact JSON only matching the commander contract. "
+        f"{', '.join(ACTIONS)}. Return a complete commander agent object. "
+        "Never return a shortcut object such as {\"action\":\"continue_mission\"}; the selected action key is "
+        "recommended_action. "
+        f"Use this exact shape: {compact_json(contract)}. "
         "If range cannot cover the detour, final waypoint, return path, and safety buffer, choose return_to_start. "
         f"Scenario: {scenario.label}. Decision context: {compact_json(decision_context)}. "
         f"Vision output: {compact_json(vision_output)}. Telemetry output: {compact_json(telemetry_output)}."

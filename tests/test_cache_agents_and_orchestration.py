@@ -117,12 +117,48 @@ def test_vision_prompt_pins_raw_json_contract() -> None:
     assert '"route_observations":[{' in prompt
 
 
+def test_commander_prompt_rejects_action_shortcut() -> None:
+    scenario = load_scenario("safe_mission")
+    from droneguard_multiverse.integrations.cerebras.prompts import commander_prompt
+
+    text = commander_prompt(
+        scenario,
+        decision_context={"risk_level": "low"},
+        vision_output={"agent": "vision", "hazards": [], "route_observations": [], "uncertainties": []},
+        telemetry_output={
+            "agent": "telemetry",
+            "mission_reachability": {
+                "can_complete_final_waypoint_and_return": True,
+                "estimated_remaining_range_m": 1200,
+                "required_range_with_detour_m": 700,
+                "reserve_after_return_m": 500,
+                "safety_buffer_m": 120,
+            },
+            "risk_flags": [],
+            "summary": {},
+        },
+    )
+
+    assert '"recommended_action":"continue_mission"' in text
+    assert '{"action":"continue_mission"}' in text
+    assert "Never return a shortcut object" in text
+
+
 def test_pydantic_ai_agent_uses_retries_for_structured_outputs(monkeypatch) -> None:
     created = {}
 
+    class FakeToolOutput:
+        def __init__(self, type_, *, name, description, max_retries):
+            self.type_ = type_
+            self.name = name
+            self.description = description
+            self.max_retries = max_retries
+
     class FakeAgent:
-        def __init__(self, model, *, output_type, retries):
+        def __init__(self, model, *, output_type, instructions, retries, name):
             created["output_type"] = output_type
+            created["instructions"] = instructions
+            created["name"] = name
             created["retries"] = retries
 
         def run_sync(self, prompt, model_settings=None):
@@ -142,7 +178,7 @@ def test_pydantic_ai_agent_uses_retries_for_structured_outputs(monkeypatch) -> N
     import sys
     import types
 
-    fake_module = types.SimpleNamespace(Agent=FakeAgent)
+    fake_module = types.SimpleNamespace(Agent=FakeAgent, ToolOutput=FakeToolOutput)
     fake_model_module = types.SimpleNamespace(CerebrasModel=FakeModel)
     fake_provider_module = types.SimpleNamespace(CerebrasProvider=FakeProvider)
     monkeypatch.setitem(sys.modules, "pydantic_ai", fake_module)
@@ -157,9 +193,42 @@ def test_pydantic_ai_agent_uses_retries_for_structured_outputs(monkeypatch) -> N
         retries=3,
     )
 
-    assert created["output_type"] is TelemetryAgentOutput
+    assert created["output_type"].type_ is TelemetryAgentOutput
+    assert created["output_type"].name == "return_telemetry_agent_output"
+    assert created["output_type"].max_retries == 3
+    assert "output tool" in created["instructions"]
     assert created["retries"] == 3
     assert response["choices"][0]["message"]["content"] == "ok"
+    assert response["pydantic_ai_output_mode"] == "tool"
+
+
+def test_structured_text_agents_route_to_pydantic_ai_even_when_raw_runtime_is_configured(monkeypatch) -> None:
+    from droneguard_multiverse.integrations.pydantic_ai import runner
+
+    captured = {}
+
+    def fake_run_text_agent(**kwargs):
+        captured.update(kwargs)
+        payload = {
+            "agent": "commander",
+            "recommended_action": "continue_mission",
+            "confidence": 0.9,
+            "operator_message": "Continue mission.",
+            "why": ["Route remains safe."],
+            "rejected_actions": [],
+            "evidence_refs": ["telemetry.latest"],
+        }
+        return {"provider": "pydantic_ai:cerebras", "choices": [{"message": {"content": json.dumps(payload)}}]}
+
+    monkeypatch.setenv("DRONEGUARD_AGENT_RUNTIME", "cerebras_chat_completions")
+    monkeypatch.setattr(runner, "run_text_agent", fake_run_text_agent)
+    client = CerebrasClient(api_key="key")
+
+    response = client.chat_completion([{"role": "user", "content": "Choose action."}], output_type=CommanderAgentOutput)
+
+    assert response["provider"] == "pydantic_ai:cerebras"
+    assert captured["output_type"] is CommanderAgentOutput
+    assert client.effective_agent_runtime([{"role": "user", "content": "Choose action."}], CommanderAgentOutput) == "pydantic_ai"
 
 
 def test_cerebras_raw_client_prefers_openai_compatible_sdk(monkeypatch) -> None:
@@ -190,6 +259,7 @@ def test_cerebras_raw_client_prefers_openai_compatible_sdk(monkeypatch) -> None:
     import types
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("DRONEGUARD_AGENT_RUNTIME", "cerebras_chat_completions")
     client = CerebrasClient(api_key="key", model="gemma-4-31b", timeout_s=7)
 
     response = client.chat_completion([{"role": "user", "content": "Return JSON."}], reasoning_effort="medium")

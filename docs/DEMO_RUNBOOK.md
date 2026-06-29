@@ -78,7 +78,7 @@ If the API is slow or rate-limited:
 - switch the app to replay mode
 - use stored responses and stored response times
 - show the cache/live badge in the observability panel
-- keep Pydantic AI and LangSmith disabled if they add external risk during judging
+- keep the same Pydantic AI/LangSmith configuration, but avoid live calls during judging by using replay mode
 
 If the UI breaks:
 
@@ -91,7 +91,7 @@ If the UI breaks:
 - Proper web app with a mission simulator experience.
 - Multimodal input: frames, telemetry, route, restricted area, mission state.
 - Agent collaboration and raw model responses are visible.
-- Optional Pydantic AI runtime and LangSmith tracing show a path beyond the local replay MVP.
+- Pydantic AI structured text agents and LangSmith tracing show a path beyond the local replay MVP.
 - Fast inference is still visible through response timing, while caching makes the demo stable.
 - The MVP stays credible by avoiding real autonomous drone control.
 
@@ -102,7 +102,7 @@ If the UI breaks:
 - Safe and dangerous scenarios run locally.
 - Web app shows simulator, agents, logs, and decision trace.
 - Cached replay works without Cerebras API access.
-- Pydantic AI runtime and LangSmith env vars are documented.
+- Pydantic AI runtime, LangSmith env vars, and replay fallback are documented.
 - No API keys are committed.
 - Demo video is recorded.
 - Screenshots are captured.

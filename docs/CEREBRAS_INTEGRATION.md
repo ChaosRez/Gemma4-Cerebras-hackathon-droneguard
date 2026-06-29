@@ -49,22 +49,19 @@ DroneGuard is a Python project with schema-heavy agent boundaries, local validat
 
 Default runtime:
 
-- `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`
-- Uses the project-owned `CerebrasClient`.
-- Sends live raw Chat Completions calls through the OpenAI-compatible SDK transport before falling back to direct HTTP.
-- Supports text and multimodal image content parts.
+- `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
+- Uses Pydantic AI's Cerebras provider for structured text agents.
+- Requests Telemetry and Commander Pydantic output models through explicit Pydantic AI tool output.
+- Allows multiple structured-output retries so Gemma can repair schema misses during live calls.
 - Preserves the existing request/response cache shape.
 
-Optional Pydantic AI runtime:
+Raw multimodal runtime:
 
-- `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
-- Uses Pydantic AI's Cerebras provider for text-only live calls.
-- Requests native structured Pydantic output models for Telemetry and Commander.
-- Allows multiple structured-output retries so Gemma can repair schema misses during live calls.
-- Keeps cache, replay, validation, and UI output unchanged.
-- Vision still falls back to the raw Cerebras client for image content parts.
+- Vision uses the project-owned `CerebrasClient` because it sends image content parts.
+- Raw Chat Completions calls go through the OpenAI-compatible SDK transport before falling back to direct HTTP.
+- If an older `.env` sets `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`, structured text agents still use Pydantic AI whenever an output model is supplied.
 
-This split is intentional for the hackathon. Pydantic AI gives us a real framework path for text agents and LangSmith tracing, while the raw client keeps multimodal Vision requests predictable.
+This split is intentional for the hackathon. Pydantic AI gives us the framework path for text agents and LangSmith tracing, while the raw client keeps multimodal Vision requests predictable.
 
 ## Image Input Pattern
 
@@ -223,8 +220,7 @@ cp .env.example .env
 Optional runtime and tracing variables:
 
 ```bash
-DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions
-# DRONEGUARD_AGENT_RUNTIME=pydantic_ai
+DRONEGUARD_AGENT_RUNTIME=pydantic_ai
 
 LANGSMITH_TRACING=false
 LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com

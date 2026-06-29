@@ -219,10 +219,10 @@ Responsibilities:
 
 Activation:
 
-- default: `DRONEGUARD_AGENT_RUNTIME=cerebras_chat_completions`
-- opt-in: `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
+- default structured text runtime: `DRONEGUARD_AGENT_RUNTIME=pydantic_ai`
+- multimodal Vision runtime: raw Cerebras Chat Completions
 
-Replay mode does not require Pydantic AI or Cerebras credentials. If Pydantic AI is enabled but cannot handle a multimodal request, the client falls back to the raw Cerebras request path for that call.
+Replay mode does not require Pydantic AI or Cerebras credentials. Structured live text agents use Pydantic AI whenever an output model is supplied, while multimodal Vision uses the raw Cerebras request path for image content parts.
 
 ### Observability
 

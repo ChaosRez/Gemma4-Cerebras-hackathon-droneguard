@@ -69,9 +69,10 @@ def execute_agent(
 ) -> AgentExecution:
     reasoning_key = reasoning_effort or "none"
     output_type_name = getattr(output_type, "__name__", None)
+    agent_runtime = _effective_agent_runtime(client, messages, output_type)
     cache_input_payload = {
         **input_payload,
-        "agent_runtime": getattr(client, "agent_runtime", "unknown"),
+        "agent_runtime": agent_runtime,
         "output_type": output_type_name,
     }
     cache_key = build_cache_key(
@@ -85,7 +86,7 @@ def execute_agent(
     request_payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "agent_runtime": getattr(client, "agent_runtime", "unknown"),
+        "agent_runtime": agent_runtime,
     }
     if output_type_name:
         request_payload["output_type"] = output_type_name
@@ -165,7 +166,7 @@ def execute_agent(
                 cache_key=cache_key,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                agent_runtime=getattr(client, "agent_runtime", "unknown"),
+                agent_runtime=agent_runtime,
                 output_type=output_type_name,
             ),
         )
@@ -290,6 +291,17 @@ def parse_json_object(text: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("assistant JSON response must be an object")
     return payload
+
+
+def _effective_agent_runtime(
+    client: CerebrasClient,
+    messages: list[dict[str, Any]],
+    output_type: type[Any] | None,
+) -> str:
+    runtime = getattr(client, "effective_agent_runtime", None)
+    if callable(runtime):
+        return str(runtime(messages, output_type))
+    return str(getattr(client, "agent_runtime", "unknown"))
 
 
 def _execution_from_entry(
