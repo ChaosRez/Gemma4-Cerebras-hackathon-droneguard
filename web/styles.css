@@ -536,6 +536,71 @@ button:disabled {
   gap: 10px;
 }
 
+.agent-graph {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr) 22px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f3f6f3;
+}
+
+.agent-graph p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.agent-node {
+  min-width: 0;
+  min-height: 54px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+}
+
+.agent-node span {
+  display: block;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.agent-node strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.agent-node.success {
+  border-color: rgba(47, 122, 79, 0.42);
+  background: rgba(47, 122, 79, 0.1);
+}
+
+.agent-node.active {
+  border-color: rgba(29, 93, 115, 0.42);
+  background: rgba(29, 93, 115, 0.1);
+}
+
+.agent-node.warning {
+  border-color: rgba(189, 116, 31, 0.42);
+  background: #fff8ed;
+}
+
+.agent-arrow {
+  color: var(--blue);
+  font-size: 1rem;
+  font-weight: 900;
+  text-align: center;
+}
+
 .agent-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -615,6 +680,14 @@ button:disabled {
   color: var(--red);
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.agent-brief {
+  margin: 0;
+  padding: 0 10px 11px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .agent-card pre,
@@ -703,6 +776,18 @@ summary {
   margin-top: 3px;
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.payload-log {
+  min-width: 0;
+}
+
+.payload-log h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 @media (max-width: 1180px) {

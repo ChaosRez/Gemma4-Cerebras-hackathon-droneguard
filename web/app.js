@@ -1,10 +1,16 @@
 const MISSION_DURATION_MS = 6200;
+const FLIGHT_SEGMENT_MS = 1450;
+const CHECKPOINT_SETTLE_MS = 180;
+const CHECKPOINT_AGENT_GAP_MS = 180;
+const STANDARD_GPU_MULTIPLIER = 4;
 
 const state = {
   scenarios: [],
   selectedId: null,
   scenario: null,
   result: null,
+  activeDecision: null,
+  activeCheckpoint: null,
   missionProgress: 0,
   animationFrame: null,
   agentStage: -1,
@@ -63,6 +69,8 @@ async function selectScenario(scenarioId) {
   cancelMissionAnimation();
   state.selectedId = scenarioId;
   state.result = null;
+  state.activeDecision = null;
+  state.activeCheckpoint = null;
   state.missionProgress = 0;
   state.agentStage = -1;
   els.runMetric.textContent = "--";
@@ -81,6 +89,8 @@ async function runAgents() {
   if (!state.selectedId) return;
   cancelMissionAnimation();
   state.result = null;
+  state.activeDecision = null;
+  state.activeCheckpoint = null;
   state.missionProgress = 0;
   state.agentStage = -1;
   els.runButton.disabled = true;
@@ -88,10 +98,10 @@ async function runAgents() {
   els.runMetric.textContent = "0.0 s";
   els.decisionConfidence.textContent = "--";
   els.decisionAction.textContent = "Assessing";
-  els.decisionMessage.textContent = "Mission evidence is streaming through Vision, Telemetry, and Commander.";
+  els.decisionMessage.textContent = "The drone will pause at each waypoint while agents check the next leg.";
   els.decisionReasons.innerHTML = "";
   setRunHealth(runningRunHealth(els.modeSelect.value));
-  renderRunningAgents(0);
+  renderCheckpointAgents(buildMissionCheckpoints(state.scenario)[0], []);
   renderMission();
   renderFrames();
   renderTrace([]);
@@ -101,24 +111,23 @@ async function runAgents() {
     scenario_id: state.selectedId,
     mode: els.modeSelect.value,
   });
-  const animationPromise = runMissionAnimation(MISSION_DURATION_MS);
 
   try {
-    const result = await apiPromise;
-    await animationPromise;
+    const result = await runCheckpointMission(apiPromise, started);
     state.result = result;
     state.scenario = result.scenario;
+    state.activeDecision = result.decision;
+    state.activeCheckpoint = buildMissionCheckpoints(result.scenario, result).at(-1) ?? null;
     state.missionProgress = 1;
     renderMission();
     renderFrames();
     setMissionHud(1, "Decision ready");
-    renderDecision(result.decision);
-    renderAgents(result.agents);
+    renderDecision(result.decision, state.activeCheckpoint);
+    renderAgents(result.agents, state.activeCheckpoint);
     setRunHealth(result.run_health);
     renderTrace(result.trace_events, result);
     els.runMetric.textContent = `${((performance.now() - started) / 1000).toFixed(1)} s`;
   } catch (error) {
-    await animationPromise.catch(() => undefined);
     els.runMetric.textContent = "Error";
     els.decisionAction.textContent = "Error";
     els.decisionMessage.textContent = error.message;
@@ -160,11 +169,12 @@ function renderMission() {
   updateBatteryMetric(state.missionProgress);
   els.expectedMetric.textContent = formatAction(scenario.expected_action);
   els.runMetric.textContent = state.result?.run_id?.slice(0, 18) ?? els.runMetric.textContent;
+  const decision = state.activeDecision;
   if (canUseMapLibre()) {
     ensureMissionMap(scenario);
-    updateMissionMap(scenario, state.result?.decision, state.missionProgress);
+    updateMissionMap(scenario, decision, state.missionProgress);
   } else {
-    els.mapCanvas.innerHTML = buildMapSvg(scenario, state.result?.decision, state.missionProgress);
+    els.mapCanvas.innerHTML = buildMapSvg(scenario, decision, state.missionProgress);
   }
 }
 
@@ -202,7 +212,7 @@ function ensureMissionMap(scenario) {
       state.mapReady = true;
       installMissionMapLayers(state.map);
       refreshMissionMapScenario(scenario);
-      updateMissionMap(scenario, state.result?.decision, state.missionProgress);
+      updateMissionMap(scenario, state.activeDecision, state.missionProgress);
     });
     return;
   }
@@ -452,7 +462,7 @@ function refreshMissionMapScenario(scenario) {
 
 function updateMissionMap(scenario, decision, progress) {
   if (!state.mapReady || state.mapScenarioId !== scenario.scenario_id) return;
-  const animation = animationCoordinates(scenario);
+  const animation = animationCoordinates(scenario, decision);
   const current = pointAlongGeoPath(animation, progress);
   setSourceData("drone-point", featureCollection([pointFeature(current, { kind: "drone" })]));
   setSourceData("progress-line", lineFeature(partialGeoPath(animation, progress)));
@@ -502,7 +512,11 @@ function createObstacleElement() {
 
 function fitMissionBounds(scenario) {
   const bounds = new window.maplibregl.LngLatBounds();
-  for (const coord of [...routeCoordinates(scenario), ...animationCoordinates(scenario), ...detourCoordinates(scenario)]) {
+  for (const coord of [
+    ...routeCoordinates(scenario),
+    ...animationCoordinates(scenario, { recommended_action: scenario.expected_action }),
+    ...detourCoordinates(scenario),
+  ]) {
     bounds.extend(coord);
   }
   state.map.fitBounds(bounds, {
@@ -517,9 +531,17 @@ function routeCoordinates(scenario) {
   return [scenario.start, ...scenario.waypoints].map(lngLat);
 }
 
-function animationCoordinates(scenario) {
+function animationCoordinates(scenario, decision = state.activeDecision) {
   const route = routeCoordinates(scenario);
   const restrictedArea = scenario.obstacles[0];
+  const action = decision?.recommended_action;
+  if (action === "return_to_start" && route.length >= 3) {
+    return [route[0], route[1], route[2], route[0]];
+  }
+  if (action === "detour_obstacle" && restrictedArea && route.length >= 4) {
+    const detour = detourCoordinates(scenario);
+    return [route[0], route[1], route[2], ...detour.slice(1)];
+  }
   if (restrictedArea && route.length >= 3) {
     return [...route.slice(0, 3), lngLat(restrictedArea.location)];
   }
@@ -667,7 +689,7 @@ function lerpCoord(a, b, ratio) {
 }
 
 function buildMapSvg(scenario, decision, progress) {
-  const model = buildMapModel(scenario, progress);
+  const model = buildMapModel(scenario, progress, decision);
   const routePath = pathFromPoints(model.route);
   const progressPath = pathFromPoints(model.progressPoints);
   const returnPath = `M ${model.current.x} ${model.current.y} L ${model.route[0].x} ${model.route[0].y}`;
@@ -739,13 +761,13 @@ function buildMapSvg(scenario, decision, progress) {
   `;
 }
 
-function buildMapModel(scenario, progress) {
+function buildMapModel(scenario, progress, decision) {
   const geoPoints = [scenario.start, ...scenario.waypoints];
   for (const obstacle of scenario.obstacles) geoPoints.push(obstacle.location);
   for (const row of scenario.telemetry ?? []) geoPoints.push(row);
   const projected = projector(geoPoints);
   const route = [scenario.start, ...scenario.waypoints].map(projected);
-  const animationGeo = animationCoordinates(scenario).map(([lon, lat]) => ({ lon, lat }));
+  const animationGeo = animationCoordinates(scenario, decision).map(([lon, lat]) => ({ lon, lat }));
   const animationPoints = animationGeo.map(projected);
   const current = pointAlongPath(animationPoints, progress);
   return {
@@ -876,12 +898,13 @@ function setRunHealth(health = noRunHealth()) {
   `;
 }
 
-function renderDecision(decision) {
-  els.decisionConfidence.textContent = `${Math.round(decision.confidence * 100)}%`;
-  els.decisionAction.textContent = formatAction(decision.recommended_action);
-  els.decisionMessage.textContent = displayCopy(decision.operator_message);
+function renderDecision(decision, checkpoint = state.activeCheckpoint) {
+  const checkpointDecision = checkpoint ? decisionForCheckpoint(checkpoint, decision) : decision;
+  els.decisionConfidence.textContent = `${Math.round(checkpointDecision.confidence * 100)}%`;
+  els.decisionAction.textContent = formatAction(checkpointDecision.recommended_action);
+  els.decisionMessage.textContent = displayCopy(checkpointDecision.operator_message);
   els.decisionReasons.innerHTML = "";
-  for (const reason of decision.why) {
+  for (const reason of checkpointDecision.why) {
     const row = document.createElement("p");
     row.textContent = displayCopy(reason);
     els.decisionReasons.append(row);
@@ -889,9 +912,7 @@ function renderDecision(decision) {
 }
 
 function renderEmptyAgents() {
-  els.agentTimeline.innerHTML = ["vision", "telemetry", "commander"]
-    .map((name) => agentCard({ agent: name, status: "pending", mode: "--", response_time_ms: "--" }))
-    .join("");
+  renderCheckpointAgents(null, []);
 }
 
 function renderRunningAgents(progress) {
@@ -900,7 +921,7 @@ function renderRunningAgents(progress) {
     runningAgentState("telemetry", progress, 0.22, 0.58),
     runningAgentState("commander", progress, 0.58, 0.94),
   ];
-  els.agentTimeline.innerHTML = agents.map(agentCard).join("");
+  renderCheckpointAgents(state.activeCheckpoint, agents);
 }
 
 function runningAgentState(agent, progress, start, finish) {
@@ -915,20 +936,51 @@ function runningAgentState(agent, progress, start, finish) {
   };
 }
 
-function renderAgents(agents) {
-  els.agentTimeline.innerHTML = agents.map(agentCard).join("");
+function renderAgents(agents, checkpoint = state.activeCheckpoint, activeAgent = null) {
+  renderCheckpointAgents(checkpoint, agents, activeAgent);
   const total = agents.reduce((sum, agent) => sum + Number(agent.response_time_ms || 0), 0);
-  els.totalLatency.textContent = `${total} ms`;
+  if (total > 0) {
+    const gpuMs = Math.round(total * STANDARD_GPU_MULTIPLIER);
+    els.totalLatency.textContent = `Cerebras ${formatLatency(total)} | GPU sim ${formatLatency(gpuMs)}`;
+  } else {
+    els.totalLatency.textContent = "--";
+  }
+}
+
+function renderCheckpointAgents(checkpoint, agents, activeAgent = null) {
+  const models = buildAgentViewModels(agents, checkpoint, activeAgent);
+  els.agentTimeline.innerHTML = `
+    ${agentGraph(models, checkpoint)}
+    ${models.map(agentCard).join("")}
+  `;
+}
+
+function agentGraph(agents, checkpoint) {
+  const checkpointLabel = checkpoint?.label ?? "Awaiting waypoint";
+  return `
+    <div class="agent-graph" aria-label="Agent communication graph">
+      ${agents
+        .map(
+          (agent, index) => `
+            <div class="agent-node ${escapeHtml(statusTone(agent))}">
+              <span>${escapeHtml(agent.shortLabel)}</span>
+              <strong>${escapeHtml(agentStatusLabel(agent))}</strong>
+            </div>
+            ${index < agents.length - 1 ? '<span class="agent-arrow">→</span>' : ""}
+          `,
+        )
+        .join("")}
+      <p>${escapeHtml(checkpointLabel)}</p>
+    </div>
+  `;
 }
 
 function agentCard(agent) {
-  const output = agent.normalized_output ? pretty(agent.normalized_output) : "";
-  const raw = agent.response ? pretty(agent.response) : "";
   const modeLabel = agentModeLabel(agent);
   return `
     <article class="agent-card ${escapeHtml(agentStatusClass(agent))}">
       <header>
-        <h3>${titleCase(agent.agent)}</h3>
+        <h3>${escapeHtml(agent.displayName ?? titleCase(agent.agent))}</h3>
         <div class="agent-badges">
           ${agentBadge(agentStatusLabel(agent), statusTone(agent))}
           ${modeLabel !== "--" ? agentBadge(modeLabel, modeTone(agent)) : ""}
@@ -939,14 +991,83 @@ function agentCard(agent) {
         <span>${escapeHtml(formatLatency(agent.response_time_ms))}</span>
         ${agent.error ? `<strong>${escapeHtml(agent.error)}</strong>` : ""}
       </div>
-      ${output ? `<pre>${escapeHtml(output)}</pre>` : ""}
-      ${
-        raw
-          ? `<details><summary>Raw payloads</summary><pre>${escapeHtml(pretty({ request: agent.request, response: agent.response, cache_key: agent.cache_key, error: agent.error }))}</pre></details>`
-          : ""
-      }
+      <p class="agent-brief">${escapeHtml(displayCopy(agent.brief ?? "Waiting for waypoint evidence."))}</p>
     </article>
   `;
+}
+
+function buildAgentViewModels(agents, checkpoint, activeAgent) {
+  const byName = new Map((agents ?? []).map((agent) => [agent.agent, agent]));
+  const order = ["vision", "telemetry", "commander"];
+  return order.map((name) => {
+    const base = byName.get(name) ?? {
+      agent: name,
+      status: "pending",
+      mode: els.modeSelect.value ?? "--",
+      response_time_ms: "--",
+      cache_hit: false,
+    };
+    const status = statusForAgent(name, base.status, activeAgent, byName.size > 0);
+    return {
+      ...base,
+      status,
+      displayName: agentDisplayName(name),
+      shortLabel: agentShortLabel(name),
+      brief: agentBrief(name, base, checkpoint),
+    };
+  });
+}
+
+function statusForAgent(name, fallbackStatus, activeAgent, hasResults) {
+  if (!hasResults) return fallbackStatus ?? "pending";
+  if (!activeAgent) return "complete";
+  const order = ["vision", "telemetry", "commander"];
+  const agentIndex = order.indexOf(name);
+  const activeIndex = order.indexOf(activeAgent);
+  if (agentIndex < activeIndex) return "complete";
+  if (agentIndex === activeIndex) return "running";
+  return "queued";
+}
+
+function agentDisplayName(name) {
+  if (name === "telemetry") return "Waypoint";
+  if (name === "commander") return "Commander";
+  return "Vision";
+}
+
+function agentShortLabel(name) {
+  if (name === "telemetry") return "Waypoint";
+  if (name === "commander") return "Commander";
+  return "Vision";
+}
+
+function agentBrief(name, agent, checkpoint) {
+  const output = agent.normalized_output ?? {};
+  if (name === "vision") {
+    const hazards = output.hazards ?? [];
+    if (hazards.length) {
+      const hazard = hazards[0];
+      return `${checkpoint?.label ?? "Route"}: ${formatToken(hazard.type)} at ${formatSeverity(hazard.severity)} severity.`;
+    }
+    return `${checkpoint?.label ?? "Route"}: sampled frames remain clear.`;
+  }
+  if (name === "telemetry") {
+    const reachability = output.mission_reachability ?? {};
+    const flags = output.risk_flags ?? [];
+    const critical = flags.find((flag) => flag.severity === "high") ?? flags[0];
+    if (critical) {
+      return `${formatToken(critical.type)}: ${critical.evidence ?? "metric threshold crossed"}`;
+    }
+    if (reachability.reserve_after_return_m !== undefined) {
+      return `Reserve ${Math.round(reachability.reserve_after_return_m)} m after route and return buffer.`;
+    }
+    return "Waypoint metrics queued for Commander review.";
+  }
+  if (name === "commander") {
+    if (checkpoint) return checkpoint.message;
+    return output.operator_message ?? "Awaiting waypoint evidence before choosing the next leg.";
+  }
+  return "";
 }
 
 function agentBadge(label, tone) {
@@ -994,6 +1115,178 @@ function formatLatency(value) {
   return Number.isFinite(number) ? `${number} ms` : "-- ms";
 }
 
+function buildMissionCheckpoints(scenario, result = null) {
+  if (!scenario?.waypoints?.length) return [];
+  const finalAction = result?.decision?.recommended_action ?? scenario.expected_action;
+  const waypoints = scenario.waypoints;
+  const checkpoints = [];
+  const denominator = Math.max(1, waypoints.length);
+  for (const [index, waypoint] of waypoints.entries()) {
+    const isDecisionWaypoint = index === Math.min(1, waypoints.length - 1);
+    const isFinalWaypoint = index === waypoints.length - 1;
+    const action = isDecisionWaypoint && finalAction !== "continue_mission" ? finalAction : "continue_mission";
+    checkpoints.push(
+      checkpointModel({
+        index,
+        waypoint,
+        progress: (index + 1) / denominator,
+        action: isFinalWaypoint ? finalAction : action,
+        final: isFinalWaypoint && finalAction !== "return_to_start",
+        scenario,
+      }),
+    );
+    if (isDecisionWaypoint && finalAction === "return_to_start") {
+      checkpoints.push(
+        checkpointModel({
+          index: index + 1,
+          waypoint: { id: "home", label: "Return-to-start corridor" },
+          progress: 1,
+          action: finalAction,
+          final: true,
+          scenario,
+        }),
+      );
+      break;
+    }
+  }
+  return checkpoints;
+}
+
+function checkpointModel({ index, waypoint, progress, action, final, scenario }) {
+  const label = waypoint.id === "home" ? "Home" : `WP${Math.min(index + 1, scenario.waypoints.length)}`;
+  const actionLabel = formatAction(action);
+  const next = scenario.waypoints[index + 1]?.label ?? "mission endpoint";
+  const messageByAction = {
+    continue_mission: final
+      ? `${label} reached. Commander confirms the route remains safe.`
+      : `${label} reached. Commander clears the next leg toward ${next}.`,
+    detour_obstacle: final
+      ? `${label} reached after reroute. Restricted airspace remains avoided.`
+      : `${label} reached. Commander overrides autopilot and routes around restricted airspace.`,
+    return_to_start:
+      waypoint.id === "home"
+        ? "Return corridor active. Commander keeps the mission endpoint skipped to preserve reserve."
+        : `${label} reached. Commander stops the route here and sends the drone back to start.`,
+    hold_position: `${label} reached. Commander holds position pending operator review.`,
+  };
+  const whyByAction = {
+    continue_mission: [
+      "Waypoint metrics are inside the current safety envelope.",
+      "No Commander override is required for the next leg.",
+    ],
+    detour_obstacle: [
+      "Restricted airspace intersects the autopilot corridor.",
+      "The detour preserves mission progress while avoiding the restricted zone.",
+    ],
+    return_to_start: [
+      "The route no longer preserves enough reserve for final delivery and return.",
+      "Returning now is the safest reachable action.",
+    ],
+    hold_position: ["Holding avoids committing to an unsafe next leg."],
+  };
+  return {
+    index,
+    waypoint_id: waypoint.id,
+    waypoint_label: waypoint.label,
+    label,
+    progress,
+    action,
+    actionLabel,
+    message: messageByAction[action] ?? messageByAction.continue_mission,
+    reasons: whyByAction[action] ?? whyByAction.continue_mission,
+    final,
+  };
+}
+
+function decisionForCheckpoint(checkpoint, finalDecision) {
+  const finalAction = finalDecision.recommended_action;
+  const confidence = checkpoint.action === finalAction ? finalDecision.confidence : Math.max(0.72, finalDecision.confidence - 0.08);
+  return {
+    recommended_action: checkpoint.action,
+    confidence,
+    operator_message: checkpoint.message,
+    why: checkpoint.reasons,
+  };
+}
+
+async function runCheckpointMission(apiPromise, started) {
+  let resolvedResult = null;
+  const resultPromise = apiPromise.then((result) => {
+    resolvedResult = result;
+    return result;
+  });
+  const previewCheckpoints = buildMissionCheckpoints(state.scenario);
+  for (let index = 0; index < previewCheckpoints.length; index += 1) {
+    const preview = previewCheckpoints[index];
+    state.activeCheckpoint = preview;
+    await animateMissionSegment(state.missionProgress, preview.progress, FLIGHT_SEGMENT_MS, `Flying to ${preview.label}`, started);
+    setMissionHud(preview.progress, `${preview.label} reached — awaiting Commander`, performance.now() - started);
+    renderCheckpointAgents(preview, []);
+    await wait(CHECKPOINT_SETTLE_MS);
+
+    const result = resolvedResult ?? (await resultPromise);
+    state.result = result;
+    state.scenario = result.scenario;
+    const checkpoints = buildMissionCheckpoints(result.scenario, result);
+    const checkpoint = checkpoints[Math.min(index, checkpoints.length - 1)];
+    state.activeCheckpoint = checkpoint;
+    await revealCheckpointDecision(result, checkpoint, started, checkpoints.length);
+    if (checkpoint.final) return result;
+  }
+  return resolvedResult ?? (await resultPromise);
+}
+
+async function revealCheckpointDecision(result, checkpoint, started, checkpointCount) {
+  const sequence = ["vision", "telemetry", "commander"];
+  for (const agentName of sequence) {
+    renderAgents(result.agents, checkpoint, agentName);
+    setMissionHud(checkpoint.progress, `${checkpoint.label}: ${agentDisplayName(agentName)} responding`, performance.now() - started);
+    await wait(agentRevealDelay(result.agents, agentName, checkpointCount));
+  }
+  state.activeDecision = decisionForCheckpoint(checkpoint, result.decision);
+  renderDecision(result.decision, checkpoint);
+  renderAgents(result.agents, checkpoint);
+  renderMission();
+  renderFrames();
+  renderTrace(result.trace_events, result);
+  setRunHealth(result.run_health);
+  setMissionHud(checkpoint.progress, `${checkpoint.label}: ${checkpoint.actionLabel}`, performance.now() - started);
+  await wait(CHECKPOINT_AGENT_GAP_MS);
+}
+
+function agentRevealDelay(agents, agentName, checkpointCount) {
+  const agent = agents.find((item) => item.agent === agentName);
+  const latency = Number(agent?.response_time_ms || 0);
+  if (!latency) return 220;
+  return clamp(Math.round(latency / Math.max(1, checkpointCount)), 180, 520);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function animateMissionSegment(fromProgress, toProgress, durationMs, phase, started) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    const startProgress = clamp(fromProgress, 0, 1);
+    const targetProgress = clamp(toProgress, 0, 1);
+    const tick = (now) => {
+      const elapsed = now - start;
+      const ratio = clamp(elapsed / durationMs, 0, 1);
+      const progress = startProgress + (targetProgress - startProgress) * ratio;
+      state.missionProgress = progress;
+      updateMission(progress, now - started, phase);
+      if (ratio < 1) {
+        state.animationFrame = requestAnimationFrame(tick);
+      } else {
+        state.animationFrame = null;
+        resolve();
+      }
+    };
+    state.animationFrame = requestAnimationFrame(tick);
+  });
+}
+
 function runMissionAnimation(durationMs) {
   return new Promise((resolve) => {
     const start = performance.now();
@@ -1013,10 +1306,10 @@ function runMissionAnimation(durationMs) {
   });
 }
 
-function updateMission(progress, elapsedMs) {
+function updateMission(progress, elapsedMs, phaseOverride = null) {
   renderMission();
   renderFrames();
-  setMissionHud(progress, missionPhase(progress, state.scenario));
+  setMissionHud(progress, phaseOverride ?? missionPhase(progress, state.scenario), elapsedMs);
   const stage = Math.floor(progress * 6);
   if (stage !== state.agentStage && !state.result) {
     state.agentStage = stage;
@@ -1025,8 +1318,8 @@ function updateMission(progress, elapsedMs) {
   els.runMetric.textContent = `${(elapsedMs / 1000).toFixed(1)} s`;
 }
 
-function setMissionHud(progress, phase) {
-  const seconds = progress * (MISSION_DURATION_MS / 1000);
+function setMissionHud(progress, phase, elapsedMs = null) {
+  const seconds = elapsedMs === null ? progress * (MISSION_DURATION_MS / 1000) : elapsedMs / 1000;
   els.missionClock.textContent = `${seconds.toFixed(1)} s`;
   els.missionPhase.textContent = phase;
   els.missionProgressValue.textContent = `${Math.round(progress * 100)}%`;
@@ -1098,8 +1391,31 @@ function renderTrace(events, result = state.result) {
         )
         .join("")}
     </div>
-    <pre>${escapeHtml(pretty(events))}</pre>
+    <div class="payload-log">
+      <h3>Agent Payloads</h3>
+      <pre>${escapeHtml(pretty(agentPayloadLog(result)))}</pre>
+    </div>
+    <div class="payload-log trace-json">
+      <h3>Event JSONL View</h3>
+      <pre>${escapeHtml(pretty(events))}</pre>
+    </div>
   `;
+}
+
+function agentPayloadLog(result) {
+  return (result?.agents ?? []).map((agent) => ({
+    agent: agent.agent,
+    status: agent.status,
+    mode: agent.mode,
+    cache_hit: agent.cache_hit,
+    response_time_ms: agent.response_time_ms,
+    model: agent.model,
+    cache_key: agent.cache_key,
+    request: agent.request,
+    response: agent.response,
+    normalized_output: agent.normalized_output,
+    error: agent.error,
+  }));
 }
 
 async function getJson(url) {
@@ -1130,6 +1446,14 @@ function pretty(value) {
 
 function titleCase(value) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatToken(value) {
+  return titleCase(String(value ?? "").replace(/_/g, " "));
+}
+
+function formatSeverity(value) {
+  return String(value ?? "unknown").toLowerCase();
 }
 
 function formatAction(value) {

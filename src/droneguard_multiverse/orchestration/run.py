@@ -244,11 +244,13 @@ def build_decision_context(
     hazards = [hazard["type"] for hazard in vision_output.get("hazards", [])]
     hazards.extend(flag["type"] for flag in telemetry_flags)
     score = 15
-    score += 30 if any(hazard.get("severity") == "high" for hazard in vision_output.get("hazards", [])) else 0
+    has_high_visual_hazard = any(hazard.get("severity") == "high" for hazard in vision_output.get("hazards", []))
+    score += 30 if has_high_visual_hazard else 0
     score += 35 if not reachability["can_complete_final_waypoint_and_return"] else 0
     score += 10 if any(flag.get("type") == "degraded_link_quality" for flag in telemetry_flags) else 0
     score += 25 if any(flag.get("type") == "breach_imminent" for flag in telemetry_flags) else 0
     score += 15 if any(flag.get("type") == "restricted_zone_proximity" for flag in telemetry_flags) else 0
+    score += 20 if has_high_visual_hazard and scenario.route_metrics.detour_distance_m > 0 else 0
     score += 10 if scenario.obstacles else 0
     score = min(100, score)
     latest = telemetry_rows[-1]
