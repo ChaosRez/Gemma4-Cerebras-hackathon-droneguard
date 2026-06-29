@@ -93,6 +93,15 @@ function shouldUseDetourPath(scenario) {
   return scenario?.expected_action === "detour_obstacle";
 }
 
+function shouldReturnToStart(scenario) {
+  if (scenario?.expected_action === "return_to_start") return true;
+  return state.result?.decision?.recommended_action === "return_to_start";
+}
+
+function isBreachDemoScenario(scenario) {
+  return shouldUseDetourPath(scenario);
+}
+
 const MISSION_DURATION_MS = 6200;
 const CEREBRAS_TPS = 2150;
 const STANDARD_TPS = 200;
@@ -499,19 +508,24 @@ async function runAgents() {
       renderDecision(result.decision);
       renderAgents(result.agents);
       renderTrace(result.trace_events, result);
-      setMissionStatus("Rerouting", "green");
+      setMissionStatus(shouldReturnToStart(state.scenario) ? "Returning" : "Rerouting", "green");
     }
 
     await animationPromise;
 
     if (provider === "slow_gpu") {
-      setMissionStatus("No-fly breach", "red");
+      setMissionStatus(isBreachDemoScenario(state.scenario) ? "No-fly breach" : "Delivery paused", "red");
     }
 
     state.missionProgress = 1;
     renderMission();
     renderFrames();
-    setMissionHud(1, provider === "slow_gpu" ? "Restricted zone breach" : "Detour complete");
+    setMissionHud(
+      1,
+      provider === "slow_gpu"
+        ? (isBreachDemoScenario(state.scenario) ? "Restricted zone breach" : "Route blocked")
+        : (shouldUseDetourPath(state.scenario) ? "Detour complete" : "Returning to kitchen"),
+    );
     updateDeliveryStepper(1);
 
     if (provider === "slow_gpu" && state.scenario?.obstacles?.length) {
@@ -1019,7 +1033,7 @@ function buildFlightPaths(scenario) {
   const route = routeCoordinates(scenario);
   const obstacle = scenario.obstacles?.[0];
   if (!obstacle || route.length < 4) {
-    return { autopilot: route, detour: route, approachFraction: 0.75 };
+    return { autopilot: route, detour: route, returnFlight: route, approachFraction: 0.75 };
   }
 
   const zoneCenter = lngLat(obstacle.location);
@@ -1041,7 +1055,9 @@ function buildFlightPaths(scenario) {
     route[3],
   ];
 
-  return { autopilot, detour, approachFraction: 0.75 };
+  const returnFlight = [route[0], route[1], route[2], route[0]];
+
+  return { autopilot, detour, returnFlight, approachFraction: 0.75 };
 }
 
 function getFlightPaths(scenario) {
@@ -1062,6 +1078,20 @@ function resolveFlightCoordinate(scenario, progress) {
 
   const switchAt = state.rerouteAtProgress;
   const approachEnd = paths.approachFraction;
+
+  if (shouldReturnToStart(scenario)) {
+    const outbound = paths.returnFlight.slice(0, 3);
+    if (!state.rerouteActivated) {
+      const t = Math.min(0.85, (routeProgress / switchAt) * 0.85);
+      return pointAlongGeoPath(outbound, t);
+    }
+    if (routeProgress <= switchAt) {
+      return pointAlongGeoPath(outbound, 0.85);
+    }
+    const returnT = (routeProgress - switchAt) / (1 - switchAt);
+    const turnPoint = pointAlongGeoPath(outbound, 0.85);
+    return pointAlongGeoPath([turnPoint, paths.returnFlight[0]], returnT);
+  }
 
   if (!shouldUseDetourPath(scenario)) {
     return pointAlongGeoPath(paths.autopilot, routeProgress);
@@ -1092,6 +1122,21 @@ function resolveProgressPath(scenario, progress) {
   const approachEnd = paths.approachFraction;
   const approachPath = partialGeoPath(paths.autopilot, approachEnd);
 
+  if (shouldReturnToStart(scenario)) {
+    const outbound = paths.returnFlight.slice(0, 3);
+    if (!state.rerouteActivated || routeProgress <= switchAt) {
+      const t = Math.min(0.85, (routeProgress / switchAt) * 0.85);
+      return partialGeoPath(outbound, t);
+    }
+    const returnT = (routeProgress - switchAt) / (1 - switchAt);
+    const outboundPath = partialGeoPath(outbound, 0.85);
+    const returnPath = partialGeoPath(
+      [pointAlongGeoPath(outbound, 0.85), paths.returnFlight[0]],
+      returnT,
+    );
+    return outboundPath.length ? [...outboundPath, ...returnPath.slice(1)] : returnPath;
+  }
+
   if (!shouldUseDetourPath(scenario)) {
     return partialGeoPath(paths.autopilot, routeProgress);
   }
@@ -1119,10 +1164,16 @@ function isInsideRestrictedZone(scenario, coord) {
 
 function animationCoordinates(scenario) {
   const paths = getFlightPaths(scenario);
-  if (isStandardProvider() || !state.rerouteActivated || !shouldUseDetourPath(scenario)) {
+  if (isStandardProvider() || !state.rerouteActivated) {
     return paths.autopilot;
   }
-  return paths.detour;
+  if (shouldReturnToStart(scenario)) {
+    return paths.returnFlight;
+  }
+  if (shouldUseDetourPath(scenario)) {
+    return paths.detour;
+  }
+  return paths.autopilot;
 }
 
 function detourCoordinates(scenario) {
@@ -1265,8 +1316,8 @@ function updateMission(progress, elapsedMs) {
 
   if (
     isStandardProvider() &&
+    isBreachDemoScenario(state.scenario) &&
     els.runButton.disabled &&
-    state.scenario?.obstacles?.length &&
     isInsideRestrictedZone(state.scenario, resolveFlightCoordinate(state.scenario, progress))
   ) {
     if (!state.breachOccurred) triggerBreachOverlay();
@@ -1297,15 +1348,22 @@ function missionPhase(progress, scenario) {
   if (progress <= 0) return "Order confirmed";
   if (!state.result && els.runButton.disabled && isStandardProvider()) return "Autopilot — awaiting AI";
   const profile = scenarioProfile(scenario);
-  if (state.rerouteActivated && !isStandardProvider() && progress >= state.rerouteAtProgress && shouldUseDetourPath(scenario)) {
-    return profile.detour_phase;
+  if (state.rerouteActivated && !isStandardProvider() && progress >= state.rerouteAtProgress) {
+    if (shouldUseDetourPath(scenario)) return profile.detour_phase;
+    if (shouldReturnToStart(scenario)) return "Returning to kitchen";
   }
   if (progress < 0.18) return "Picked up from restaurant";
   if (progress < 0.42) return "Flying to you";
   if (progress < 0.66) return scenario?.obstacles?.length ? profile.approach_phase : "Navigating city";
   if (progress < 0.82) return scenario?.obstacles?.length ? "Autopilot corridor ahead" : "Turning onto your street";
-  if (progress < 0.96) return isStandardProvider() ? "Entering restricted zone" : "Verifying safe landing";
-  return isStandardProvider() ? "Restricted zone breach" : "Arriving soon";
+  if (progress < 0.96) {
+    if (isStandardProvider() && isBreachDemoScenario(scenario)) return "Entering restricted zone";
+    if (!isStandardProvider() && shouldReturnToStart(scenario) && state.rerouteActivated) return "Returning to kitchen";
+    return "Verifying safe landing";
+  }
+  if (isStandardProvider() && isBreachDemoScenario(scenario)) return "Restricted zone breach";
+  if (!isStandardProvider() && shouldReturnToStart(scenario)) return "Back at kitchen";
+  return "Arriving soon";
 }
 
 function renderOrderCard() {
