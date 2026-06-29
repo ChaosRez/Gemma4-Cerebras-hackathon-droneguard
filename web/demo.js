@@ -1,4 +1,43 @@
+const AGENT_DISPLAY_NAMES = {
+  vision: "Route Vision",
+  telemetry: "Battery Check",
+  commander: "Dispatch AI",
+};
+
+const ORDER_PROFILES = {
+  safe_mission: {
+    order_id: "QD-BER-2847",
+    restaurant: "Mustafa's Gemüse Kebap",
+    restaurant_emoji: "🥙",
+    items: ["Gemüse Döner × 1", "Ayran × 1", "Pommes × 1"],
+    customer: "Lena Hoffmann",
+    address: "Kastanienallee 82, Prenzlauer Berg",
+    eta_minutes: 9,
+    price: "€11.50",
+    courier: "Drone QD-7",
+  },
+  dangerous_detour_low_battery: {
+    order_id: "QD-BER-2901",
+    restaurant: "Mustafa's Gemüse Kebap",
+    restaurant_emoji: "🥙",
+    items: ["Döner Box × 2", "Lahmacun × 1", "Ayran × 2"],
+    customer: "Lena Hoffmann",
+    address: "Kastanienallee 82, Prenzlauer Berg",
+    eta_minutes: 11,
+    price: "€18.00",
+    courier: "Drone QD-3",
+  },
+};
+
 const MISSION_DURATION_MS = 6200;
+const CEREBRAS_TPS = 2150;
+const STANDARD_TPS = 200;
+
+const INFERENCE_MODE_LABELS = {
+  replay: { badge: "Cached replay", hint: "Replay uses cached live Cerebras responses." },
+  live: { badge: "Live API", hint: "Calls Cerebras directly — slower, requires API key." },
+  refresh: { badge: "Refresh cache", hint: "Re-runs live calls and overwrites the replay cache." },
+};
 
 const state = {
   scenarios: [],
@@ -16,7 +55,8 @@ const state = {
   droneMarker: null,
   mapStatusNode: null,
   mapUnavailable: false,
-  activeProvider: "cerebras", // "cerebras" or "slow_gpu"
+  activeProvider: "cerebras",
+  runMode: "replay",
   breachOccurred: false,
   chart: null,
 };
@@ -29,20 +69,29 @@ if (urlParams.get("fallback") === "true") {
 const els = {
   scenarioSelect: document.querySelector("#scenarioSelect"),
   modeCerebras: document.querySelector("#modeCerebras"),
-  modeSlow: document.querySelector("#modeSlow"),
+  modeStandard: document.querySelector("#modeStandard"),
+  inferenceModeSelect: document.querySelector("#inferenceModeSelect"),
+  inferenceModeBadge: document.querySelector("#inferenceModeBadge"),
   runButton: document.querySelector("#runButton"),
   statusDot: document.querySelector("#statusDot"),
   statusText: document.querySelector("#statusText"),
   clockVal: document.querySelector("#clockVal"),
   
-  // Gauges
-  batteryFill: document.querySelector("#batteryFill"),
   batteryVal: document.querySelector("#batteryVal"),
   altitudeVal: document.querySelector("#altitudeVal"),
-  altitudeBar: document.querySelector("#altitudeBar"),
   speedVal: document.querySelector("#speedVal"),
-  speedBar: document.querySelector("#speedBar"),
   linkVal: document.querySelector("#linkVal"),
+
+  restaurantEmoji: document.querySelector("#restaurantEmoji"),
+  restaurantName: document.querySelector("#restaurantName"),
+  orderId: document.querySelector("#orderId"),
+  orderPrice: document.querySelector("#orderPrice"),
+  orderItems: document.querySelector("#orderItems"),
+  customerAddress: document.querySelector("#customerAddress"),
+  customerName: document.querySelector("#customerName"),
+  etaVal: document.querySelector("#etaVal"),
+  courierName: document.querySelector("#courierName"),
+  deliveryStepper: document.querySelector("#deliveryStepper"),
   
   // Progress Timeline
   progressPctVal: document.querySelector("#progressPctVal"),
@@ -72,6 +121,7 @@ init();
 async function init() {
   renderEmptyAgents();
   initProviderControls();
+  initInferenceModeControls();
   
   try {
     const payload = await getJson("/api/scenarios");
@@ -96,15 +146,90 @@ async function init() {
 function initProviderControls() {
   els.modeCerebras.addEventListener("click", () => {
     els.modeCerebras.classList.add("active");
-    els.modeSlow.classList.remove("active");
+    els.modeStandard.classList.remove("active");
     state.activeProvider = "cerebras";
+    updateTPSHighlight("cerebras");
   });
   
-  els.modeSlow.addEventListener("click", () => {
-    els.modeSlow.classList.add("active");
+  els.modeStandard.addEventListener("click", () => {
+    els.modeStandard.classList.add("active");
     els.modeCerebras.classList.remove("active");
     state.activeProvider = "slow_gpu";
+    updateTPSHighlight("slow_gpu");
   });
+  
+  updateTPSHighlight("cerebras");
+}
+
+function initInferenceModeControls() {
+  if (!els.inferenceModeSelect) return;
+  state.runMode = els.inferenceModeSelect.value || "replay";
+  updateInferenceModeBadge(state.runMode);
+  els.inferenceModeSelect.addEventListener("change", (event) => {
+    state.runMode = event.target.value;
+    updateInferenceModeBadge(state.runMode);
+  });
+}
+
+function updateInferenceModeBadge(mode) {
+  if (!els.inferenceModeBadge) return;
+  const meta = INFERENCE_MODE_LABELS[mode] ?? INFERENCE_MODE_LABELS.replay;
+  els.inferenceModeBadge.textContent = meta.badge;
+  els.inferenceModeBadge.className = `inference-badge ${mode === "live" ? "live" : mode === "refresh" ? "refresh" : ""}`;
+  els.inferenceModeBadge.title = meta.hint;
+}
+
+function isStandardProvider() {
+  return state.activeProvider === "slow_gpu";
+}
+
+function computeDecisionDelayMs(result, provider) {
+  const agentTotal = (result.agents ?? []).reduce(
+    (sum, agent) => sum + Number(agent.response_time_ms || 0),
+    0,
+  );
+  const baseLatency = Number(result.total_run_time_ms || agentTotal || 800);
+  if (provider !== "slow_gpu") return 0;
+  const scaledLatency = baseLatency * (CEREBRAS_TPS / STANDARD_TPS);
+  return Math.max(0, Math.round(scaledLatency - baseLatency));
+}
+
+function decorateProviderResult(result, provider) {
+  const decorated = JSON.parse(JSON.stringify(result));
+  if (provider !== "slow_gpu") {
+    decorated.provider = "cerebras";
+    return decorated;
+  }
+
+  const delay = computeDecisionDelayMs(decorated, provider);
+  const scale = (CEREBRAS_TPS / STANDARD_TPS);
+  decorated.provider = "standard";
+  decorated.agents = decorated.agents.map((agent) => ({
+    ...agent,
+    mode: "standard_replay",
+    response_time_ms: Math.round(Number(agent.response_time_ms || 0) * scale),
+  }));
+  decorated.total_run_time_ms = Math.round(Number(decorated.total_run_time_ms || 0) * scale);
+  decorated.run_health = {
+    label: "Standard",
+    tone: "danger",
+    summary: "Autopilot held too long at 200 tok/s — safety agents arrived too late to reroute around Mauerpark.",
+  };
+  decorated._decision_delay_ms = delay;
+  return decorated;
+}
+
+function updateTPSHighlight(provider) {
+  const card = document.querySelector(".tps-comparison-card");
+  if (!card) return;
+  card.querySelectorAll(".tps-bar-row").forEach(row => {
+    row.classList.remove("highlighted");
+  });
+  if (provider === "cerebras") {
+    card.querySelector(".cerebras-row").classList.add("highlighted");
+  } else {
+    card.querySelector(".standard-row").classList.add("highlighted");
+  }
 }
 
 function populateScenarioSelect() {
@@ -128,14 +253,20 @@ async function selectScenario(scenarioId) {
   
   state.scenario = await getJson(`/api/scenarios/${encodeURIComponent(scenarioId)}`);
   
-  setMissionStatus("STANDBY", "green");
-  setMissionHud(0, "Ready");
+  setMissionStatus("Preparing", "green");
+  setMissionHud(0, "Order confirmed");
   resetDecision();
+  renderOrderCard();
+  resetTelemetryDisplay();
   renderEmptyAgents();
   renderTrace([]);
   renderFrames();
   renderMission();
   initChart();
+  updateDeliveryStepper(0);
+  if (state.mapReady && state.scenario) {
+    updateMissionMap(state.scenario, null, 0);
+  }
   
   // Remove breach overlay if any
   const overlay = els.mapCanvas.querySelector(".breach-overlay");
@@ -157,7 +288,7 @@ function initChart() {
         {
           label: "Battery %",
           data: [],
-          borderColor: "#34d399",
+          borderColor: "#06c167",
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
@@ -167,7 +298,7 @@ function initChart() {
         {
           label: "Link Quality %",
           data: [],
-          borderColor: "#fbbf24",
+          borderColor: "#ff8000",
           borderWidth: 1.5,
           pointRadius: 0,
           fill: false,
@@ -184,14 +315,14 @@ function initChart() {
       },
       scales: {
         x: {
-          grid: { color: "rgba(255, 255, 255, 0.05)" },
-          ticks: { color: "#8b92a8", font: { family: "DM Sans", size: 9 } }
+          grid: { color: "rgba(0, 0, 0, 0.04)" },
+          ticks: { color: "#9ca3af", font: { family: "DM Sans", size: 9 } }
         },
         y: {
           min: 0,
           max: 100,
-          grid: { color: "rgba(255, 255, 255, 0.05)" },
-          ticks: { color: "#8b92a8", font: { family: "DM Sans", size: 9 } }
+          grid: { color: "rgba(0, 0, 0, 0.04)" },
+          ticks: { color: "#9ca3af", font: { family: "DM Sans", size: 9 } }
         }
       }
     }
@@ -233,15 +364,15 @@ async function runAgents() {
   if (overlay) overlay.remove();
   
   els.runButton.disabled = true;
-  els.runButton.innerHTML = `<i data-lucide="loader" class="spin"></i><span>SCANNING</span>`;
+  els.runButton.innerHTML = `<i data-lucide="loader" class="spin"></i><span>Tracking…</span>`;
   typeof lucide !== 'undefined' && lucide.createIcons();
   
-  setMissionStatus("ANALYZING", "blue");
+  setMissionStatus("Routing", "blue");
   
   els.decisionConfidence.textContent = "--";
-  els.decisionAction.textContent = "ASSESSING";
-  els.decisionAction.className = "action-banner uppercase";
-  els.decisionMessage.textContent = "Multimodal agents are active. Streaming telemetry, keyframes, and rules...";
+  els.decisionAction.textContent = "Checking route";
+  els.decisionAction.className = "action-banner";
+  els.decisionMessage.textContent = "AI agents are scanning the flight path, checking battery range, and looking for obstacles on your delivery route.";
   els.decisionReasons.innerHTML = "";
   
   renderRunningAgents(0);
@@ -252,77 +383,65 @@ async function runAgents() {
   
   const started = performance.now();
   const provider = state.activeProvider;
-  
-  // Backend request always runs in replay mode for consistency and speed safety in hackathon
+  const runMode = state.runMode || "replay";
+
   const apiPromise = postJson("/api/runs", {
     scenario_id: state.selectedId,
-    mode: "replay",
+    mode: runMode,
   });
-  
+
   const animationPromise = runMissionAnimation(MISSION_DURATION_MS);
-  
+  updateInferenceModeBadge(runMode);
+
   try {
-    let result = await apiPromise;
-    
+    const rawResult = await apiPromise;
+    const result = decorateProviderResult(rawResult, provider);
+    const decisionDelayMs = result._decision_delay_ms ?? 0;
+
     if (provider === "slow_gpu") {
-      // Simulate standard GPU provider delay (5.5 seconds out of 6.2s total animation)
-      await new Promise(resolve => setTimeout(resolve, 5500));
-      
-      // Override details for Slow GPU view
-      result = JSON.parse(JSON.stringify(result));
-      result.mode = "slow_gpu";
-      result.agents[0].response_time_ms = 2200;
-      result.agents[0].mode = "slow_gpu";
-      result.agents[1].response_time_ms = 1800;
-      result.agents[1].mode = "slow_gpu";
-      result.agents[2].response_time_ms = 2400;
-      result.agents[2].mode = "slow_gpu";
-      result.total_run_time_ms = 6400;
-      
-      result.run_health = {
-        label: "Standard GPU",
-        tone: "danger",
-        summary: "Safety agent responses arrived too late to prevent wildlife sanctuary buffer entry."
-      };
+      setMissionStatus("Autopilot", "amber");
+      els.decisionMessage.textContent = `Drone is on autopilot while Standard inference replays at ${STANDARD_TPS} tok/s…`;
+      if (decisionDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, decisionDelayMs));
+      }
+      state.result = result;
+      renderDecision(result.decision);
+      renderAgents(result.agents);
+      renderTrace(result.trace_events, result);
     } else {
-      // Cerebras mode: Set state immediately as it returns (~0.8s) so drone can reroute in real-time
       state.result = result;
       renderDecision(result.decision);
       renderAgents(result.agents);
       renderTrace(result.trace_events, result);
-      setMissionStatus("SAFE RETURN", "green");
+      setMissionStatus("On the way", "green");
     }
-    
+
     await animationPromise;
-    
-    // In Slow GPU mode, set the result only after animation completes
+
     if (provider === "slow_gpu") {
-      state.result = result;
-      renderDecision(result.decision);
-      renderAgents(result.agents);
-      renderTrace(result.trace_events, result);
-      setMissionStatus("BUFFER BREACH", "red");
+      setMissionStatus("Delivery paused", "red");
     }
-    
+
     state.missionProgress = 1;
     renderMission();
     renderFrames();
-    setMissionHud(1, "Decision ready");
-    
-    if (provider === "slow_gpu") {
+    setMissionHud(1, provider === "slow_gpu" ? "Route blocked" : "Almost there");
+    updateDeliveryStepper(1);
+
+    if (provider === "slow_gpu" && state.scenario?.obstacles?.length) {
       triggerBreachOverlay();
     }
-    
-    const elapsed = provider === "slow_gpu" ? 6400 : (performance.now() - started);
+
+    const elapsed = performance.now() - started;
     els.totalLatency.textContent = `${Math.round(elapsed)} ms`;
   } catch (error) {
     await animationPromise.catch(() => undefined);
-    setMissionStatus("SYSTEM ERROR", "red");
-    els.decisionAction.textContent = "ERROR";
+    setMissionStatus("Error", "red");
+    els.decisionAction.textContent = "Something went wrong";
     els.decisionMessage.textContent = error.message;
   } finally {
     els.runButton.disabled = false;
-    els.runButton.innerHTML = `<i data-lucide="play"></i><span>Start Flight</span>`;
+    els.runButton.innerHTML = `<i data-lucide="navigation"></i><span>Track order</span>`;
     typeof lucide !== 'undefined' && lucide.createIcons();
   }
 }
@@ -331,7 +450,7 @@ function triggerBreachOverlay() {
   state.breachOccurred = true;
   const overlay = document.createElement("div");
   overlay.className = "breach-overlay";
-  overlay.innerHTML = `<div class="breach-banner">SAFETY ALERT: SANCTUARY ZONE ENTERED</div>`;
+  overlay.innerHTML = `<div class="breach-banner">⚠️ Delivery paused — Mauerpark flea market blocks the route and AI arrived too late to reroute safely</div>`;
   els.mapCanvas.appendChild(overlay);
 }
 
@@ -369,7 +488,7 @@ function ensureMissionMap(scenario) {
         container: "missionMap",
         style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
         center: [scenario.start.lon, scenario.start.lat],
-        zoom: 16.2,
+        zoom: 14.8,
         pitch: 20,
         bearing: -10,
         attributionControl: false,
@@ -435,6 +554,7 @@ function installMissionMapLayers(map) {
     "return-line",
     "scan-line",
     "obstacle-zone",
+    "drone-point",
   ];
   for (const source of sources) {
     if (!map.getSource(source)) {
@@ -547,6 +667,29 @@ function installMissionMapLayers(map) {
       "line-dasharray": [2, 2],
     },
   });
+
+  map.addLayer({
+    id: "drone-point-glow",
+    type: "circle",
+    source: "drone-point",
+    paint: {
+      "circle-radius": 18,
+      "circle-color": "#00ccbc",
+      "circle-opacity": 0.22,
+      "circle-blur": 0.4,
+    },
+  });
+  map.addLayer({
+    id: "drone-point-layer",
+    type: "circle",
+    source: "drone-point",
+    paint: {
+      "circle-radius": 8,
+      "circle-color": "#06c167",
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#ffffff",
+    },
+  });
 }
 
 function refreshMissionMapScenario(scenario) {
@@ -582,18 +725,15 @@ function refreshMissionMapScenario(scenario) {
   });
   
   // Add a Home marker
-  const homeEl = createWaypointElement("H", "Home Station");
+  const homeEl = createWaypointElement("🥙", "Mustafa's Kebap");
   const homeMarker = new window.maplibregl.Marker({ element: homeEl })
     .setLngLat([scenario.start.lon, scenario.start.lat])
     .addTo(state.map);
   state.waypointMarkers.push(homeMarker);
   
-  // Add custom spinning quadcopter marker
-  const droneEl = createDroneMarkerElement();
-  state.droneMarker = new window.maplibregl.Marker({ element: droneEl })
-    .setLngLat([scenario.start.lon, scenario.start.lat])
-    .addTo(state.map);
-    
+  const startCoord = [scenario.start.lon, scenario.start.lat];
+  ensureDroneMarker(startCoord);
+  setSourceData("drone-point", pointFeature(startCoord));
   fitMissionBounds(scenario);
 }
 
@@ -602,38 +742,44 @@ function createDroneMarkerElement() {
   el.className = "drone-map-avatar";
   el.innerHTML = `
     <svg class="drone-body-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- Quadcopter frame arms -->
-      <line x1="20" y1="20" x2="80" y2="80" stroke="#8b7aff" stroke-width="6" stroke-linecap="round"/>
-      <line x1="80" y1="20" x2="20" y2="80" stroke="#8b7aff" stroke-width="6" stroke-linecap="round"/>
-      
-      <!-- Rotors (Background rings) -->
-      <circle cx="20" cy="20" r="10" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
-      <circle cx="80" cy="20" r="10" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
-      <circle cx="20" cy="80" r="10" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
-      <circle cx="80" cy="80" r="10" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
-      
-      <!-- Propellers (spinning elements) -->
+      <line x1="20" y1="20" x2="80" y2="80" stroke="#00ccbc" stroke-width="6" stroke-linecap="round"/>
+      <line x1="80" y1="20" x2="20" y2="80" stroke="#00ccbc" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="20" cy="20" r="10" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+      <circle cx="80" cy="20" r="10" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+      <circle cx="20" cy="80" r="10" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+      <circle cx="80" cy="80" r="10" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
       <g class="spinning-rotor" style="transform-origin: 20px 20px;">
-        <line x1="12" y1="20" x2="28" y2="20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="12" y1="20" x2="28" y2="20" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
       </g>
       <g class="spinning-rotor" style="transform-origin: 80px 20px;">
-        <line x1="72" y1="20" x2="88" y2="20" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="72" y1="20" x2="88" y2="20" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
       </g>
       <g class="spinning-rotor" style="transform-origin: 20px 80px;">
-        <line x1="12" y1="80" x2="28" y2="80" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="12" y1="80" x2="28" y2="80" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
       </g>
       <g class="spinning-rotor" style="transform-origin: 80px 80px;">
-        <line x1="72" y1="80" x2="88" y2="80" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="72" y1="80" x2="88" y2="80" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
       </g>
-      
-      <!-- Drone center pod -->
-      <circle cx="50" cy="50" r="14" fill="#13151f" stroke="#8b7aff" stroke-width="3"/>
-      <circle cx="50" cy="50" r="6" fill="#34d399"/>
-      <!-- Direction pointer -->
-      <path d="M 50 30 L 46 36 L 54 36 Z" fill="#8b7aff"/>
+      <circle cx="50" cy="50" r="14" fill="#0d1420" stroke="#00ccbc" stroke-width="3"/>
+      <circle cx="50" cy="50" r="6" fill="#06c167"/>
+      <path d="M 50 28 L 46 36 L 54 36 Z" fill="#ffffff"/>
     </svg>
   `;
   return el;
+}
+
+function ensureDroneMarker(lngLat) {
+  if (!state.mapReady || !state.map) return;
+  if (!state.droneMarker) {
+    const droneEl = createDroneMarkerElement();
+    state.droneMarker = new window.maplibregl.Marker({
+      element: droneEl,
+      anchor: "center",
+      className: "drone-marker",
+    })
+      .setLngLat(lngLat)
+      .addTo(state.map);
+  }
 }
 
 function clearMissionMarkers() {
@@ -655,7 +801,7 @@ function createWaypointElement(code, label) {
 function createObstacleElement() {
   const el = document.createElement("div");
   el.className = "obstacle-map-marker";
-  el.textContent = "RESTRICTED AIRSPACE";
+  el.textContent = "🎪 Mauerpark No-Fly";
   return el;
 }
 
@@ -675,11 +821,13 @@ function updateMissionMap(scenario, decision, progress) {
     heading = (Math.atan2(dx, dy) * 180) / Math.PI;
   }
   
+  ensureDroneMarker(current);
   if (state.droneMarker) {
     state.droneMarker.setLngLat(current);
     state.droneMarker.setRotation(heading);
   }
-  
+  setSourceData("drone-point", pointFeature(current));
+
   setSourceData("progress-line", lineFeature(partialGeoPath(animation, progress)));
   
   // Draw red return path from drone back to start if returning
@@ -700,38 +848,39 @@ function updateMissionMap(scenario, decision, progress) {
   }
 }
 
+function resetTelemetryDisplay() {
+  els.batteryVal.textContent = "—";
+  els.batteryVal.className = "";
+  els.altitudeVal.textContent = "—";
+  els.speedVal.textContent = "—";
+  els.linkVal.textContent = "—";
+  for (let i = 1; i <= 5; i++) {
+    const bar = document.querySelector(`#sig-${i}`);
+    if (bar) {
+      bar.classList.remove("active");
+      bar.style.backgroundColor = "";
+    }
+  }
+}
+
 function updateBatteryHUD(progress) {
   const scenario = state.scenario;
-  if (!scenario) return;
+  if (!scenario || progress <= 0) {
+    if (!els.runButton.disabled) resetTelemetryDisplay();
+    return;
+  }
   
   const startBattery = Number(scenario.starting_battery_pct ?? scenario.latest_battery_pct ?? 100);
   const latestBattery = Number(scenario.latest_battery_pct ?? startBattery);
   const currentPct = startBattery + (latestBattery - startBattery) * clamp(progress, 0, 1);
   
   els.batteryVal.textContent = `${Math.round(currentPct)}%`;
-  
-  // Radial stroke dash offset circle fill computation
-  const radius = 40;
-  const circumference = 2 * Math.PI * radius; // 251.2
-  const offset = circumference - (currentPct / 100) * circumference;
-  els.batteryFill.style.strokeDashoffset = offset;
-  
-  // Color code battery ring based on battery status
-  if (currentPct < 25) {
-    els.batteryFill.style.stroke = "var(--neon-red)";
-    els.batteryVal.className = "gauge-val lcd-font text-red";
-  } else if (currentPct < 55) {
-    els.batteryFill.style.stroke = "var(--neon-amber)";
-    els.batteryVal.className = "gauge-val lcd-font text-amber";
-  } else {
-    els.batteryFill.style.stroke = "var(--neon-green)";
-    els.batteryVal.className = "gauge-val lcd-font text-green";
-  }
+  els.batteryVal.className = currentPct < 25 ? "text-red" : currentPct < 55 ? "text-amber" : "text-green";
 }
 
 function updateTelemetryHUD(progress) {
   const scenario = state.scenario;
-  if (!scenario || !scenario.telemetry || !scenario.telemetry.length) return;
+  if (!scenario || !scenario.telemetry || !scenario.telemetry.length || progress <= 0) return;
   
   const rows = scenario.telemetry;
   const index = Math.min(rows.length - 1, Math.floor(progress * rows.length));
@@ -739,10 +888,7 @@ function updateTelemetryHUD(progress) {
   
   // LCD gauges
   els.altitudeVal.textContent = row.altitude_m.toFixed(1);
-  els.altitudeBar.style.width = `${clamp((row.altitude_m / 40) * 100, 0, 100)}%`;
-  
   els.speedVal.textContent = row.speed_mps.toFixed(1);
-  els.speedBar.style.width = `${clamp((row.speed_mps / 15) * 100, 0, 100)}%`;
   
   els.linkVal.textContent = Math.round(row.link_quality_pct);
   
@@ -754,11 +900,11 @@ function updateTelemetryHUD(progress) {
       if (i <= activeBars) {
         bar.classList.add("active");
         if (row.link_quality_pct < 40) {
-          bar.style.backgroundColor = "var(--neon-red)";
+          bar.style.backgroundColor = "var(--accent-red)";
         } else if (row.link_quality_pct < 70) {
-          bar.style.backgroundColor = "var(--neon-amber)";
+          bar.style.backgroundColor = "var(--accent-orange)";
         } else {
-          bar.style.backgroundColor = "var(--neon-green)";
+          bar.style.backgroundColor = "var(--accent-green)";
         }
       } else {
         bar.classList.remove("active");
@@ -777,15 +923,12 @@ function animationCoordinates(scenario) {
   const restrictedArea = scenario.obstacles[0];
   
   if (restrictedArea && route.length >= 3) {
-    // If a decision returns return_to_start AND we are in fast Cerebras mode, turn back safely early!
-    if (state.result && state.result.decision?.recommended_action === "return_to_start") {
-      const isSlow = state.result.mode === "slow_gpu" || state.result.total_run_time_ms > 3000;
-      if (!isSlow) {
-        // Cerebras mode path: Start -> WP1 -> WP2 -> return back to Home Start
-        return [...route.slice(0, 3), route[0]];
-      }
+    if (
+      state.result?.decision?.recommended_action === "return_to_start" &&
+      !isStandardProvider()
+    ) {
+      return [...route.slice(0, 3), route[0]];
     }
-    // Standard GPU slow mode or no decision yet: go straight to the restricted area (crashes/breaches!)
     return [...route.slice(0, 3), lngLat(restrictedArea.location)];
   }
   return route;
@@ -906,7 +1049,7 @@ function fitMissionBounds(scenario) {
     bounds.extend(coord);
   }
   state.map.fitBounds(bounds, {
-    padding: { top: 52, right: 62, bottom: 52, left: 62 },
+    padding: { top: 80, right: 80, bottom: 100, left: 340 },
     duration: 0,
     bearing: -10,
     pitch: 20,
@@ -947,40 +1090,89 @@ function updateMission(progress, elapsedMs) {
 
 function setMissionHud(progress, phase) {
   const seconds = progress * (MISSION_DURATION_MS / 1000);
-  
-  // Clock pad formatting MM:SS.S
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  const ms = Math.floor((seconds % 1) * 10);
-  els.clockVal.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${ms}`;
+  els.clockVal.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   
   els.phaseText.textContent = phase;
   els.progressPctVal.textContent = `${Math.round(progress * 100)}%`;
   els.progressBarFill.style.width = `${Math.round(progress * 100)}%`;
+  updateDeliveryStepper(progress);
+  updateETA(progress);
 }
 
 function missionPhase(progress, scenario) {
-  if (progress <= 0) return "READY";
-  if (progress < 0.18) return "DEPARTING START";
-  if (progress < 0.42) return "WAYPOINT 1";
-  if (progress < 0.66) return "WAYPOINT 2";
-  if (progress < 0.82) return scenario?.obstacles?.length ? "RESTRICTED CORRIDOR SCAN" : "FINAL SEGMENT";
-  if (progress < 0.96) return "BATTERY RESERVE CHECK";
-  return "DECISION CONFIRMED";
+  if (progress <= 0) return "Order confirmed";
+  if (!state.result && els.runButton.disabled && isStandardProvider()) return "Autopilot — awaiting AI";
+  if (progress < 0.18) return "Picked up from restaurant";
+  if (progress < 0.42) return "Flying to you";
+  if (progress < 0.66) return "Navigating city";
+  if (progress < 0.82) return scenario?.obstacles?.length ? "Checking alternate route" : "Turning onto your street";
+  if (progress < 0.96) return "Verifying safe landing";
+  return "Arriving soon";
+}
+
+function renderOrderCard() {
+  const scenario = state.scenario;
+  if (!scenario) return;
+  const order = ORDER_PROFILES[scenario.scenario_id];
+  if (!order) return;
+
+  els.restaurantEmoji.textContent = order.restaurant_emoji;
+  els.restaurantName.textContent = order.restaurant;
+  els.orderId.textContent = order.order_id;
+  els.orderPrice.textContent = order.price;
+  els.customerAddress.textContent = order.address;
+  els.customerName.textContent = order.customer;
+  els.courierName.textContent = order.courier;
+  els.etaVal.textContent = `${order.eta_minutes} min`;
+
+  els.orderItems.innerHTML = "";
+  for (const item of order.items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    els.orderItems.append(li);
+  }
+}
+
+function updateETA(progress) {
+  const scenario = state.scenario;
+  if (!scenario) return;
+  const order = ORDER_PROFILES[scenario.scenario_id];
+  if (!order) return;
+
+  const remaining = Math.max(1, Math.round(order.eta_minutes * (1 - progress)));
+  els.etaVal.textContent = progress >= 0.96 ? "Soon!" : `${remaining} min`;
+}
+
+function updateDeliveryStepper(progress) {
+  if (!els.deliveryStepper) return;
+  const step = progress <= 0 ? 0 : progress < 0.25 ? 1 : progress < 0.7 ? 2 : 3;
+
+  els.deliveryStepper.querySelectorAll(".step").forEach((el) => {
+    const s = Number(el.dataset.step);
+    el.classList.remove("active", "done");
+    if (s < step) el.classList.add("done");
+    else if (s === step) el.classList.add("active");
+  });
+
+  els.deliveryStepper.querySelectorAll(".step-line").forEach((el, i) => {
+    el.classList.toggle("done", i < step);
+  });
 }
 
 function resetDecision() {
   els.decisionConfidence.textContent = "--";
-  els.decisionAction.textContent = "WAITING";
-  els.decisionAction.className = "action-banner uppercase";
-  els.decisionMessage.textContent = "Starting safety analysis pipeline...";
+  els.decisionAction.textContent = "Waiting";
+  els.decisionAction.className = "action-banner";
+  els.decisionMessage.textContent = "Your order is being prepared. Hit Track order to watch AI-powered drone routing.";
   els.decisionReasons.innerHTML = "";
 }
 
 function renderDecision(decision) {
   els.decisionConfidence.textContent = `${Math.round(decision.confidence * 100)}%`;
   els.decisionAction.textContent = formatAction(decision.recommended_action);
-  els.decisionAction.className = `action-banner uppercase ${decision.recommended_action}`;
+  els.decisionAction.className = `action-banner ${decision.recommended_action}`;
   els.decisionMessage.textContent = displayCopy(decision.operator_message);
   
   els.decisionReasons.innerHTML = "";
@@ -1024,14 +1216,16 @@ function renderAgents(agents) {
   els.totalLatency.textContent = `${total} ms`;
 }
 
+
 function agentCard(agent) {
   const output = agent.normalized_output ? pretty(agent.normalized_output) : "";
   const raw = agent.response ? pretty(agent.response) : "";
   const modeLabel = agentModeLabel(agent);
+  const displayName = AGENT_DISPLAY_NAMES[agent.agent] || titleCase(agent.agent);
   return `
     <article class="agent-card ${escapeHtml(agentStatusClass(agent))}">
       <header>
-        <h3>${titleCase(agent.agent)}</h3>
+        <h3>${escapeHtml(displayName)}</h3>
         <div class="agent-badges">
           ${agentBadge(agentStatusLabel(agent), statusTone(agent))}
           ${modeLabel !== "--" ? agentBadge(modeLabel, modeTone(agent)) : ""}
@@ -1042,10 +1236,10 @@ function agentCard(agent) {
         <span>${escapeHtml(formatLatency(agent.response_time_ms))}</span>
         ${agent.error ? `<strong>${escapeHtml(agent.error)}</strong>` : ""}
       </div>
-      ${output ? `<pre>${escapeHtml(output)}</pre>` : ""}
+      ${output ? `<pre class="compact-pre">${escapeHtml(output)}</pre>` : ""}
       ${
         raw
-          ? `<details><summary>System Payloads</summary><pre>${escapeHtml(pretty({ request: agent.request, response: agent.response, cache_key: agent.cache_key, error: agent.error }))}</pre></details>`
+          ? `<details><summary>Payloads</summary><pre class="compact-pre">${escapeHtml(pretty({ request: agent.request, response: agent.response, cache_key: agent.cache_key, error: agent.error }))}</pre></details>`
           : ""
       }
     </article>
@@ -1082,15 +1276,26 @@ function agentModeLabel(agent) {
   if (agent.mode === "live") return "Live Cerebras";
   if (agent.mode === "refresh") return "Refresh";
   if (agent.mode === "replay") return "Replay";
-  if (agent.mode === "slow_gpu") return "Standard GPU (Slow)";
+  if (agent.mode === "slow_gpu" || agent.mode === "standard_replay") return `Standard ${STANDARD_TPS} tok/s`;
+  if (agent.mode === "cerebras") return "Cerebras";
   return String(agent.mode ?? "--");
 }
 
 function modeTone(agent) {
   if (agent.status === "fallback") return "warning";
-  if (agent.mode === "live" || agent.mode === "cerebras") return "success";
-  if (agent.mode === "slow_gpu") return "danger";
+  if (agent.mode === "live" || agent.mode === "cerebras" || agent.mode === "replay") return "success";
+  if (agent.mode === "slow_gpu" || agent.mode === "standard_replay") return "danger";
   return "neutral";
+}
+
+function inferenceModeLabel(mode) {
+  return INFERENCE_MODE_LABELS[mode]?.badge ?? mode;
+}
+
+function providerLabel(result) {
+  if (result?.provider === "standard") return `Standard · ${STANDARD_TPS} tok/s`;
+  if (result?.provider === "cerebras") return `Cerebras · ${CEREBRAS_TPS} tok/s`;
+  return isStandardProvider() ? `Standard · ${STANDARD_TPS} tok/s` : `Cerebras · ${CEREBRAS_TPS} tok/s`;
 }
 
 function formatLatency(value) {
@@ -1119,9 +1324,9 @@ function renderFrames() {
 }
 
 function renderTrace(events, result = state.result) {
-  els.traceSummary.textContent = events.length ? `${events.length} EVENTS` : "NO RUN ACTIVE";
+  els.traceSummary.textContent = events.length ? `${events.length} events` : "Idle";
   if (!events.length) {
-    els.traceEvents.innerHTML = `<p style="color:var(--text-muted);font-size:0.75rem;margin:0;">Initialize mission run to inspect system execution traces.</p>`;
+    els.traceEvents.innerHTML = `<p style="color:var(--text-muted);font-size:0.75rem;margin:0;">Start a delivery run to see the dispatch log.</p>`;
     return;
   }
   
@@ -1130,13 +1335,14 @@ function renderTrace(events, result = state.result) {
   
   const items = [
     ["Run ID", result?.run_id?.slice(0, 16) ?? "--"],
-    ["Mode", result?.mode === "slow_gpu" ? "Standard GPU (Slow)" : "Cerebras Fast"],
+    ["Inference", inferenceModeLabel(result?.mode ?? state.runMode)],
+    ["Provider", providerLabel(result)],
     ["Health", result?.run_health?.label ?? "OK"],
     ["LangSmith", langsmith.enabled ? "Enabled" : "Disabled"],
   ];
   
   els.traceEvents.innerHTML = `
-    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05);">
+    <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(0,0,0,0.06);">
       ${items.map(([lbl, val]) => `
         <div>
           <div style="font-size:0.55rem; color:var(--text-muted); text-transform:uppercase;">${escapeHtml(lbl)}</div>
@@ -1197,9 +1403,15 @@ function titleCase(value) {
 }
 
 function formatAction(value) {
-  if (!value) return "--";
-  if (value === "detour_obstacle") return "Detour Restricted Area";
-  return titleCase(value);
+  if (!value) return "—";
+  const labels = {
+    continue_mission: "On the way to you",
+    return_to_start: "Returning to kitchen",
+    hold_position: "Hovering — hold tight",
+    detour_obstacle: "Rerouting around Mauerpark",
+    assessing_route: "Checking best route",
+  };
+  return labels[value] ?? titleCase(value);
 }
 
 function displayCopy(value) {
@@ -1271,7 +1483,7 @@ function buildMapSvg(scenario, decision, progress) {
       <!-- Waypoint elements -->
       ${model.route.map((p, index) => `
         <g>
-          <circle cx="${p.x}" cy="${p.y}" r="10" fill="#0f1117" stroke="${index === 0 ? "var(--neon-green)" : "var(--neon-blue)"}" stroke-width="2"></circle>
+          <circle cx="${p.x}" cy="${p.y}" r="10" fill="#1a1f2e" stroke="${index === 0 ? "var(--accent-green)" : "var(--brand)"}" stroke-width="2"></circle>
           <text x="${p.x + 12}" y="${p.y + 4}" font-size="10" font-family="var(--font-lcd)" font-weight="700" fill="#fff">${index === 0 ? "START" : `WP${index}`}</text>
         </g>
       `).join("")}
@@ -1279,20 +1491,19 @@ function buildMapSvg(scenario, decision, progress) {
       <!-- Protected Sanctuary Zone -->
       ${model.obstacle ? `
         <g>
-          <circle cx="${model.obstacle.x}" cy="${model.obstacle.y}" r="40" fill="rgba(255, 56, 56, 0.15)" stroke="var(--neon-red)" stroke-width="1.5" stroke-dasharray="4 3"></circle>
-          <rect x="${model.obstacle.x - 45}" y="${model.obstacle.y - 12}" width="90" height="24" rx="6" fill="#0f1117" stroke="var(--neon-red)" stroke-width="1"></rect>
-          <text x="${model.obstacle.x}" y="${model.obstacle.y + 5}" font-size="9" font-family="var(--font-lcd)" font-weight="900" fill="var(--neon-red)" text-anchor="middle">SANCTUARY</text>
+          <circle cx="${model.obstacle.x}" cy="${model.obstacle.y}" r="40" fill="rgba(238, 46, 71, 0.15)" stroke="var(--accent-red)" stroke-width="1.5" stroke-dasharray="4 3"></circle>
+          <rect x="${model.obstacle.x - 45}" y="${model.obstacle.y - 12}" width="90" height="24" rx="6" fill="#1a1f2e" stroke="var(--accent-red)" stroke-width="1"></rect>
+          <text x="${model.obstacle.x}" y="${model.obstacle.y + 5}" font-size="8" font-family="var(--font-data)" font-weight="900" fill="var(--accent-red)" text-anchor="middle">MAUERPARK</text>
         </g>
       ` : ""}
       
       <!-- Drone Icon element -->
       <g transform="translate(${model.current.x} ${model.current.y}) rotate(${heading})">
-        <circle r="12" fill="rgba(0, 229, 255, 0.1)" stroke="var(--neon-blue)" stroke-width="1.5"></circle>
-        <!-- Direction head -->
-        <path d="M 0 -16 L -5 -10 L 5 -10 Z" fill="var(--neon-blue)"></path>
+        <circle r="12" fill="rgba(0, 204, 188, 0.15)" stroke="var(--brand)" stroke-width="1.5"></circle>
+        <path d="M 0 -16 L -5 -10 L 5 -10 Z" fill="var(--brand)"></path>
         <line x1="-12" y1="-12" x2="12" y2="12" stroke="#fff" stroke-width="2" opacity="0.7"></line>
         <line x1="12" y1="-12" x2="-12" y2="12" stroke="#fff" stroke-width="2" opacity="0.7"></line>
-        <circle r="4" fill="var(--neon-green)"></circle>
+        <circle r="4" fill="var(--accent-green)"></circle>
       </g>
     </svg>
   `;

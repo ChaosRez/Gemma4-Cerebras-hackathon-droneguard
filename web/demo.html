@@ -3,169 +3,201 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DroneGuard – Flight Monitor</title>
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <!-- MapLibre -->
+    <title>QuickDrop — Track Your Order</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/vendor/maplibre-gl.css" />
-    <!-- Lucide Icons -->
     <script src="/vendor/lucide.js"></script>
-    <!-- Chart.js -->
     <script src="/vendor/chart.js"></script>
     <link rel="stylesheet" href="/demo.css" />
   </head>
   <body>
-    <main class="app-shell dark-theme">
-      <!-- Header -->
+    <main class="app-shell delivery-theme">
       <header class="topbar">
         <div class="brand">
-          <div class="logo-wrapper">
-            <span class="pulse-dot active"></span>
-            <p class="eyebrow">DroneGuard</p>
+          <div class="logo-mark">QD</div>
+          <div class="brand-text">
+            <p class="eyebrow">QuickDrop Berlin</p>
+            <h1>Track your order</h1>
           </div>
-          <div class="title-row">
-            <h1>Flight Monitor</h1>
-            <a href="/" class="hud-link-btn classic-btn">
-              <i data-lucide="layout-dashboard"></i>
-              <span>Dashboard</span>
-            </a>
+        </div>
+
+        <div class="tps-comparison-card">
+          <div class="tps-header-title">
+            <i data-lucide="zap"></i>
+            <span>AI routing throughput</span>
+          </div>
+          <div class="tps-metric-grid">
+            <div class="tps-bar-row cerebras-row highlighted">
+              <span class="provider-lbl">Cerebras</span>
+              <div class="bar-container">
+                <div class="bar-fill-tps bg-green" style="width: 100%"></div>
+              </div>
+              <span class="speed-val">2,150 tok/s</span>
+            </div>
+            <div class="tps-bar-row standard-row">
+              <span class="provider-lbl">Standard</span>
+              <div class="bar-container">
+                <div class="bar-fill-tps bg-amber" style="width: 9.3%"></div>
+              </div>
+              <span class="speed-val">200 tok/s</span>
+            </div>
           </div>
         </div>
 
         <div class="run-controls">
-          <!-- Real-time Agent Mode Toggle -->
+          <div class="inference-mode">
+            <label for="inferenceModeSelect">Inference</label>
+            <select id="inferenceModeSelect" class="inference-select">
+              <option value="replay" selected>Replay (cached)</option>
+              <option value="live">Live</option>
+              <option value="refresh">Refresh cache</option>
+            </select>
+            <span id="inferenceModeBadge" class="inference-badge">Cached replay</span>
+          </div>
           <div class="provider-switch">
             <button id="modeCerebras" class="switch-btn active" type="button">
               <i data-lucide="zap"></i>
-              <span>Cerebras (Fast)</span>
+              <span>Cerebras</span>
             </button>
-            <button id="modeSlow" class="switch-btn" type="button">
+            <button id="modeStandard" class="switch-btn" type="button">
               <i data-lucide="server"></i>
-              <span>Standard GPU (Slow)</span>
+              <span>Standard</span>
             </button>
           </div>
           <button id="runButton" type="button" class="run-btn">
-            <i data-lucide="play"></i>
-            <span>Start Flight</span>
+            <i data-lucide="navigation"></i>
+            <span>Track order</span>
           </button>
         </div>
       </header>
 
-      <!-- Main Grid Layout -->
       <section class="hud-layout">
-        
-        <!-- Left Column: Telemetry Gauges -->
-        <aside class="hud-sidebar" aria-label="Telemetry Dashboard">
-          <div class="hud-panel-heading">
-            <i data-lucide="cpu"></i>
-            <h2>Telemetry</h2>
-          </div>
-          
-          <div class="hud-grid">
-            <!-- Battery Gauge -->
-            <div class="hud-widget battery-widget">
-              <div class="widget-header">
-                <span>BATTERY</span>
-                <i data-lucide="battery"></i>
+        <aside class="hud-sidebar" aria-label="Order details">
+          <div class="sidebar-scroll">
+            <div id="orderCard" class="order-card">
+              <div class="order-card-header">
+                <div class="restaurant-badge" id="restaurantEmoji">🥙</div>
+                <div class="order-card-meta">
+                  <strong id="restaurantName">—</strong>
+                  <span id="orderId" class="order-id">—</span>
+                </div>
+                <span id="orderPrice" class="order-price">—</span>
               </div>
-              <div class="gauge-container">
-                <svg viewBox="0 0 100 100" class="radial-gauge">
-                  <circle cx="50" cy="50" r="40" class="gauge-bg"></circle>
-                  <circle cx="50" cy="50" r="40" class="gauge-fill" id="batteryFill"></circle>
-                </svg>
-                <div class="gauge-val lcd-font" id="batteryVal">--%</div>
+              <ul id="orderItems" class="order-items"></ul>
+              <div class="delivery-address">
+                <i data-lucide="map-pin"></i>
+                <div>
+                  <span class="addr-label">Delivering to</span>
+                  <strong id="customerAddress">—</strong>
+                  <span id="customerName" class="customer-name">—</span>
+                </div>
               </div>
-            </div>
-
-            <!-- Altitude Gauge -->
-            <div class="hud-widget">
-              <div class="widget-header">
-                <span>ALTITUDE</span>
-                <i data-lucide="navigation"></i>
-              </div>
-              <div class="lcd-value-container">
-                <span class="lcd-font lcd-value text-blue" id="altitudeVal">--</span>
-                <span class="lcd-unit">M</span>
-              </div>
-              <div class="bar-indicator">
-                <span class="bar-fill bg-blue" id="altitudeBar" style="width: 0%"></span>
+              <div class="eta-block">
+                <div class="eta-main">
+                  <span class="eta-label">Estimated arrival</span>
+                  <strong id="etaVal" class="eta-time">—</strong>
+                </div>
+                <div class="courier-chip">
+                  <i data-lucide="plane"></i>
+                  <span id="courierName">—</span>
+                </div>
               </div>
             </div>
 
-            <!-- Speed Gauge -->
-            <div class="hud-widget">
-              <div class="widget-header">
-                <span>SPEED</span>
-                <i data-lucide="gauge"></i>
+            <div class="delivery-stepper" id="deliveryStepper">
+              <div class="step" data-step="0">
+                <div class="step-dot"></div>
+                <span>Confirmed</span>
               </div>
-              <div class="lcd-value-container">
-                <span class="lcd-font lcd-value text-green" id="speedVal">--</span>
-                <span class="lcd-unit">M/S</span>
+              <div class="step-line"></div>
+              <div class="step" data-step="1">
+                <div class="step-dot"></div>
+                <span>Picked up</span>
               </div>
-              <div class="bar-indicator">
-                <span class="bar-fill bg-green" id="speedBar" style="width: 0%"></span>
+              <div class="step-line"></div>
+              <div class="step" data-step="2">
+                <div class="step-dot"></div>
+                <span>On the way</span>
+              </div>
+              <div class="step-line"></div>
+              <div class="step" data-step="3">
+                <div class="step-dot"></div>
+                <span>Arriving</span>
               </div>
             </div>
 
-            <!-- Signal Link -->
-            <div class="hud-widget">
-              <div class="widget-header">
-                <span>LINK QUALITY</span>
-                <i data-lucide="wifi"></i>
+            <details class="tech-drawer" open>
+              <summary>
+                <i data-lucide="radio"></i>
+                <span>Drone telemetry</span>
+              </summary>
+              <div class="tech-drawer-body">
+                <div class="vitals-compact">
+                  <div class="vital-pill">
+                    <i data-lucide="battery"></i>
+                    <span id="batteryVal">—</span>
+                  </div>
+                  <div class="vital-pill">
+                    <i data-lucide="navigation"></i>
+                    <span id="altitudeVal">—</span><small>m</small>
+                  </div>
+                  <div class="vital-pill">
+                    <i data-lucide="gauge"></i>
+                    <span id="speedVal">—</span><small>m/s</small>
+                  </div>
+                  <div class="vital-pill signal-pill">
+                    <i data-lucide="wifi"></i>
+                    <span id="linkVal">—</span><small>%</small>
+                    <div class="signal-bars compact">
+                      <div class="sig-bar" id="sig-1"></div>
+                      <div class="sig-bar" id="sig-2"></div>
+                      <div class="sig-bar" id="sig-3"></div>
+                      <div class="sig-bar" id="sig-4"></div>
+                      <div class="sig-bar" id="sig-5"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="chart-container">
+                  <canvas id="telemetryChart"></canvas>
+                </div>
+                <div class="camera-strip">
+                  <div class="widget-header">
+                    <span>Live camera</span>
+                    <i data-lucide="video"></i>
+                  </div>
+                  <div id="frameStrip" class="frames-scroll-sidebar"></div>
+                </div>
               </div>
-              <div class="lcd-value-container">
-                <span class="lcd-font lcd-value text-amber" id="linkVal">--</span>
-                <span class="lcd-unit">%</span>
-              </div>
-              <div class="signal-bars">
-                <div class="sig-bar" id="sig-1"></div>
-                <div class="sig-bar" id="sig-2"></div>
-                <div class="sig-bar" id="sig-3"></div>
-                <div class="sig-bar" id="sig-4"></div>
-                <div class="sig-bar" id="sig-5"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Real-time Chart Widget -->
-          <div class="hud-chart-panel">
-            <div class="widget-header">
-              <span>SIGNAL & BATTERY</span>
-              <i data-lucide="activity"></i>
-            </div>
-            <div class="chart-container">
-              <canvas id="telemetryChart"></canvas>
-            </div>
+            </details>
           </div>
         </aside>
 
-        <!-- Center Column: Flight Map -->
         <section class="hud-map-panel">
           <div class="map-controls">
             <div class="scenario-selector">
-              <label for="scenarioSelect">SCENARIO</label>
-              <select id="scenarioSelect" class="lcd-select"></select>
+              <label for="scenarioSelect">Scenario</label>
+              <select id="scenarioSelect" class="scenario-select"></select>
             </div>
             <div class="mission-status-hud">
               <div class="status-indicator">
                 <span class="status-dot green" id="statusDot"></span>
-                <span class="lcd-font uppercase" id="statusText">STANDBY</span>
+                <span id="statusText">Preparing</span>
               </div>
-              <div class="time-elapsed lcd-font" id="clockVal">00:00.0</div>
+              <div class="time-elapsed" id="clockVal">00:00</div>
             </div>
           </div>
 
           <div id="mapCanvas" class="map-canvas"></div>
-          
+
           <div class="map-footer-timeline">
             <div class="timeline-row">
               <div class="timeline-meta">
-                <span>PROGRESS</span>
+                <span>Progress</span>
                 <strong id="progressPctVal">0%</strong>
               </div>
-              <div class="timeline-meta">
-                <span>CURRENT PHASE</span>
-                <strong id="phaseText" class="text-blue">Ready</strong>
+              <div class="timeline-meta align-right">
+                <span>Status</span>
+                <strong id="phaseText" class="text-brand">Order confirmed</strong>
               </div>
             </div>
             <div class="timeline-bar-bg">
@@ -174,69 +206,53 @@
           </div>
         </section>
 
-        <!-- Right Column: Agent Pipeline & Decisions -->
         <section class="hud-right-rail">
-          <!-- Decision Card -->
-          <div class="hud-decision-panel">
+          <div class="hud-decision-panel customer-update">
             <div class="hud-panel-heading">
-              <i data-lucide="brain"></i>
-              <h2>Safety Coordinator</h2>
-              <span id="decisionConfidence" class="confidence-badge">--</span>
+              <i data-lucide="bell"></i>
+              <h2>Delivery update</h2>
+              <span id="decisionConfidence" class="confidence-badge">—</span>
             </div>
             <div class="decision-content">
-              <div class="action-banner uppercase" id="decisionAction">WAITING</div>
-              <p class="operator-msg" id="decisionMessage">Select a scenario and click Start Flight to begin the safety analysis.</p>
+              <div class="action-banner" id="decisionAction">Waiting</div>
+              <p class="operator-msg" id="decisionMessage">Your order is being prepared. Hit Track order to watch AI-powered drone routing.</p>
               <div class="reasons-list" id="decisionReasons"></div>
             </div>
           </div>
 
-          <!-- Agents Feed -->
-          <div class="hud-agents-panel">
+          <div class="hud-agents-panel ops-console">
             <div class="hud-panel-heading">
-              <i data-lucide="users"></i>
-              <h2>Agent Pipeline</h2>
-              <span id="totalLatency" class="latency-summary">-- ms</span>
+              <i data-lucide="cpu"></i>
+              <h2>AI safety pipeline</h2>
+              <span id="totalLatency" class="latency-summary">—</span>
             </div>
-            <div class="agents-timeline-container" id="agentTimeline">
-              <!-- Dynamically populated Agent cards -->
+            <div class="pipeline-flow-container">
+              <div class="pipeline-stack" id="agentTimeline"></div>
             </div>
+          </div>
+
+          <div class="hud-observability-sidebar">
+            <details class="obs-details">
+              <summary class="obs-summary">
+                <div class="summary-left">
+                  <i data-lucide="terminal"></i>
+                  <span>Dispatch log</span>
+                </div>
+                <span id="traceSummary">Idle</span>
+              </summary>
+              <div class="obs-content">
+                <div id="traceEvents" class="trace-feed"></div>
+              </div>
+            </details>
           </div>
         </section>
-      </section>
-
-      <!-- Video Feed Strip (extracted frames) -->
-      <section class="hud-video-strip">
-        <div class="feed-header">
-          <i data-lucide="video"></i>
-          <span>Vision Frames</span>
-        </div>
-        <div id="frameStrip" class="frames-scroll"></div>
-      </section>
-
-      <!-- Observability Drawer -->
-      <section class="hud-observability">
-        <details class="obs-details">
-          <summary class="obs-summary">
-            <div class="summary-left">
-              <i data-lucide="terminal"></i>
-              <span>Event Log</span>
-            </div>
-            <span id="traceSummary" class="lcd-font">NO RUN ACTIVE</span>
-          </summary>
-          <div class="obs-content">
-            <div id="traceEvents" class="trace-feed"></div>
-          </div>
-        </details>
       </section>
     </main>
 
     <script src="/vendor/maplibre-gl.js"></script>
     <script src="/demo.js" type="module"></script>
     <script>
-      // Initialize Lucide Icons
-      document.addEventListener("DOMContentLoaded", () => {
-        lucide.createIcons();
-      });
+      document.addEventListener("DOMContentLoaded", () => lucide.createIcons());
     </script>
   </body>
 </html>

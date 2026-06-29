@@ -1,15 +1,15 @@
 [
   {
     "scenario_id": "safe_mission",
-    "label": "Safe mission: clear inspection corridor",
+    "label": "Clear route — Döner to Prenzlauer Berg",
     "risk_label": "low",
     "expected_action": "continue_mission",
-    "mission_goal": "Inspect all mission waypoints and return to start safely.",
-    "start": {"lat": 37.7749, "lon": -122.4194},
+    "mission_goal": "Deliver hot Gemüse Döner from Mustafa's to customer rooftop pad in Prenzlauer Berg and return to kitchen hub.",
+    "start": {"lat": 52.4934, "lon": 13.3880},
     "waypoints": [
-      {"id": "wp_1", "lat": 37.7752, "lon": -122.4190, "label": "North fence line"},
-      {"id": "wp_2", "lat": 37.7756, "lon": -122.4185, "label": "Equipment yard"},
-      {"id": "wp_3", "lat": 37.7759, "lon": -122.4181, "label": "Final roof edge"}
+      {"id": "wp_1", "lat": 52.4988, "lon": 13.3965, "label": "Landwehr Canal Air Lane"},
+      {"id": "wp_2", "lat": 52.5125, "lon": 13.4045, "label": "Torstraße Transit Corridor"},
+      {"id": "wp_3", "lat": 52.5330, "lon": 13.4092, "label": "Kastanienallee 82 — Rooftop Pad"}
     ],
     "obstacles": [],
     "assets": {
@@ -54,21 +54,21 @@
   },
   {
     "scenario_id": "dangerous_detour_low_battery",
-    "label": "Dangerous: detour makes final waypoint unsafe",
+    "label": "Mauerpark blocked — detour exceeds battery",
     "risk_label": "high",
     "expected_action": "return_to_start",
-    "mission_goal": "Inspect all mission waypoints and return to start safely.",
-    "start": {"lat": 37.7749, "lon": -122.4194},
+    "mission_goal": "Deliver Mustafa's döner order to Prenzlauer Berg around the Mauerpark flea-market no-fly zone if battery allows.",
+    "start": {"lat": 52.4934, "lon": 13.3880},
     "waypoints": [
-      {"id": "wp_1", "lat": 37.7751, "lon": -122.4189, "label": "Inspect north edge"},
-      {"id": "wp_2", "lat": 37.7756, "lon": -122.4183, "label": "Inspect equipment yard"},
-      {"id": "wp_3", "lat": 37.7762, "lon": -122.4179, "label": "Final inspection point"}
+      {"id": "wp_1", "lat": 52.4988, "lon": 13.3965, "label": "Bergmannstraße Exit Lane"},
+      {"id": "wp_2", "lat": 52.5150, "lon": 13.4050, "label": "Bernauer Straße Transit"},
+      {"id": "wp_3", "lat": 52.5330, "lon": 13.4092, "label": "Kastanienallee 82 — Rooftop Pad"}
     ],
     "obstacles": [
       {
         "id": "obs_1",
-        "type": "temporary_crane",
-        "location": {"lat": 37.7757, "lon": -122.4182},
+        "type": "crowd_event",
+        "location": {"lat": 52.5280, "lon": 13.4060},
         "requires_detour_m": 180.0,
         "first_visible_frame_id": "frame_003"
       }
