@@ -113,12 +113,21 @@ By default, live mode routes structured text agents through Pydantic AI's Cerebr
 DRONEGUARD_AGENT_RUNTIME=pydantic_ai
 ```
 
-Vision remains on the raw Cerebras client for multimodal image messages. Live Vision calls still use the same local JSON validation and cache path as the text agents. To export Pydantic AI traces and DroneGuard custom spans to LangSmith, set `LANGSMITH_TRACING=true`, `LANGSMITH_ENDPOINT`, `LANGSMITH_API_KEY`, and optionally `LANGSMITH_PROJECT`.
+Vision remains on the raw Cerebras client for multimodal image messages. Live Vision calls still use the same local JSON validation and cache path as the text agents.
 
-Exported shell variables take precedence over values in `.env`.
+## Tracing with Arize Phoenix
+
+1. **Start Phoenix:** Run `uv run phoenix serve` in a new terminal window.
+2. **Configure `.env`:** Enable tracing by ensuring these values are set:
+   ```bash
+   PHOENIX_TRACING=true
+   PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006
+   PHOENIX_PROJECT_NAME=droneguard-multiverse
+   ```
+3. **View Traces:** Run the agent analysis via the app, then open **[http://localhost:6006](http://localhost:6006)** in your browser.
 
 ## Test
 
 ```bash
-pytest
+uv run --with pytest pytest
 ```

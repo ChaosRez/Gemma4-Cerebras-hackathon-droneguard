@@ -13,7 +13,7 @@ from droneguard_multiverse.integrations.cerebras.client import (
     CerebrasClientError,
     assistant_text,
 )
-from droneguard_multiverse.observability.langsmith import trace_step
+from droneguard_multiverse.observability import trace_step
 
 
 @dataclass(frozen=True)

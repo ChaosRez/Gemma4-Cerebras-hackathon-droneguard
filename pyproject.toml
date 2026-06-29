@@ -3,8 +3,11 @@ name = "droneguard-multiverse"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "langsmith[otel]",
+    "arize-phoenix>=17.12.0",
     "openai",
+    "openinference-instrumentation-pydantic-ai>=0.1.16",
+    "opentelemetry-exporter-otlp>=1.43.0",
+    "opentelemetry-sdk>=1.43.0",
     "pydantic-ai-slim",
 ]
 

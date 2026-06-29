@@ -16,7 +16,7 @@ from droneguard_multiverse.integrations.pydantic_ai import (
     model_settings,
     run_text_agent,
 )
-from droneguard_multiverse.observability.langsmith import configure_langsmith
+from droneguard_multiverse.observability.phoenix import configure_phoenix
 from droneguard_multiverse.orchestration.run import RunOrchestrator, build_run_health
 from droneguard_multiverse.paths import DATA_DIR
 from droneguard_multiverse.schemas.agents import (
@@ -32,10 +32,9 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _disable_external_langsmith_for_tests(monkeypatch) -> None:
-    monkeypatch.setenv("LANGSMITH_TRACING", "false")
-    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
-    monkeypatch.setenv("LANGSMITH_PROJECT", "droneguard-multiverse")
+def _disable_external_phoenix_for_tests(monkeypatch) -> None:
+    monkeypatch.setenv("PHOENIX_TRACING", "false")
+    monkeypatch.setenv("PHOENIX_PROJECT_NAME", "droneguard-multiverse")
 
 
 def test_image_encoder_accepts_png_frame() -> None:
@@ -332,17 +331,16 @@ def test_execute_agent_forwards_pydantic_output_type(tmp_path) -> None:
     assert execution.request["output_type"] == "CommanderAgentOutput"
 
 
-def test_langsmith_config_is_disabled_without_tracing(monkeypatch) -> None:
-    monkeypatch.setenv("LANGSMITH_TRACING", "false")
-    monkeypatch.setenv("LANGSMITH_ENDPOINT", "https://eu.api.smith.langchain.com")
-    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
-    monkeypatch.setenv("LANGSMITH_PROJECT", "droneguard-multiverse")
+def test_phoenix_config_is_disabled_without_tracing(monkeypatch) -> None:
+    monkeypatch.setenv("PHOENIX_TRACING", "false")
+    monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006")
+    monkeypatch.setenv("PHOENIX_PROJECT_NAME", "droneguard-multiverse")
 
-    status = configure_langsmith()
+    status = configure_phoenix()
 
     assert status.enabled is False
     assert status.project == "droneguard-multiverse"
-    assert status.endpoint == "https://eu.api.smith.langchain.com"
+    assert status.endpoint == "http://127.0.0.1:6006"
 
 
 def test_seed_cache_replay_returns_recorded_latency() -> None:
