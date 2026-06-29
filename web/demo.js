@@ -925,7 +925,7 @@ function updateMissionMap(scenario, decision, progress) {
     "detour-line",
     lineFeature(
       state.rerouteActivated
-        ? state.flightPaths?.detour ?? buildFlightPaths(scenario).detour
+        ? detourExecutionPath(getFlightPaths(scenario))
         : [],
     ),
   );
@@ -1053,6 +1053,15 @@ function getFlightPaths(scenario) {
   return state.flightPaths ?? buildFlightPaths(scenario);
 }
 
+function detourStartCoordinate(paths) {
+  return pointAlongGeoPath(paths.autopilot, paths.approachFraction);
+}
+
+function detourExecutionPath(paths) {
+  const bypassPoints = paths.detour.length > 3 ? paths.detour.slice(3) : paths.detour.slice(1);
+  return [detourStartCoordinate(paths), ...bypassPoints];
+}
+
 function resolveFlightCoordinate(scenario, progress) {
   const paths = getFlightPaths(scenario);
   const routeProgress = clamp(progress, 0, 1);
@@ -1096,7 +1105,7 @@ function resolveFlightCoordinate(scenario, progress) {
   }
 
   const detourT = (routeProgress - switchAt) / (1 - switchAt);
-  return pointAlongGeoPath(paths.detour.slice(2), detourT);
+  return pointAlongGeoPath(detourExecutionPath(paths), detourT);
 }
 
 function resolveProgressPath(scenario, progress) {
@@ -1140,7 +1149,7 @@ function resolveProgressPath(scenario, progress) {
   }
 
   const detourT = (routeProgress - switchAt) / (1 - switchAt);
-  const detourPath = partialGeoPath(paths.detour.slice(2), detourT);
+  const detourPath = partialGeoPath(detourExecutionPath(paths), detourT);
   return detourPath.length ? [...approachPath, ...detourPath.slice(1)] : approachPath;
 }
 
@@ -1167,13 +1176,13 @@ function animationCoordinates(scenario) {
     return paths.returnFlight;
   }
   if (shouldUseDetourPath(scenario)) {
-    return paths.detour;
+    return detourExecutionPath(paths);
   }
   return paths.autopilot;
 }
 
 function detourCoordinates(scenario) {
-  return getFlightPaths(scenario).detour;
+  return detourExecutionPath(getFlightPaths(scenario));
 }
 
 function serviceRoadCoordinates(scenario) {
@@ -2144,15 +2153,16 @@ function buildMapSvg(scenario, decision, progress) {
   const progressPath = pathFromPoints(model.progressPoints);
   const returnPath = `M ${model.current.x} ${model.current.y} L ${model.route[0].x} ${model.route[0].y}`;
   const paths = getFlightPaths(scenario);
+  const detourPathCoords = detourExecutionPath(paths);
   const svgProject = projector([
     scenario.start,
     ...scenario.waypoints,
     ...(scenario.obstacles ?? []).map((o) => o.location),
-    ...paths.detour.map(([lon, lat]) => ({ lon, lat })),
+    ...detourPathCoords.map(([lon, lat]) => ({ lon, lat })),
   ]);
   const detourPath =
     model.obstacle && state.rerouteActivated && !isStandardProvider()
-      ? pathFromPoints(paths.detour.map(([lon, lat]) => svgProject({ lon, lat })))
+      ? pathFromPoints(detourPathCoords.map(([lon, lat]) => svgProject({ lon, lat })))
       : "";
   const action = decision?.recommended_action ?? (progress > 0 && progress < 1 ? "assessing_route" : scenario.expected_action);
   const scanX = 42 + progress * 540;
