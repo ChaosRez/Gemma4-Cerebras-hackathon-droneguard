@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -91,25 +92,35 @@ class RunOrchestrator:
             )
 
             self._event(trace_store, scenario, "agent_request_started", "Vision Agent started.", agent="vision")
-            vision = self.vision_agent.run(
-                scenario=scenario,
-                cache=self.cache,
-                client=self.client,
-                mode=mode,
-                simulate_latency=self.simulate_latency,
-            )
-            self._agent_events(trace_store, scenario, vision.to_dict())
-
             self._event(trace_store, scenario, "agent_request_started", "Zone Monitor started.", agent="telemetry")
-            telemetry = self.telemetry_agent.run(
-                scenario=scenario,
-                telemetry_rows=telemetry_rows,
-                cache=self.cache,
-                client=self.client,
-                mode=mode,
-                simulate_latency=self.simulate_latency,
-            )
-            self._agent_events(trace_store, scenario, telemetry.to_dict())
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="droneguard-agent") as executor:
+                futures = {
+                    executor.submit(
+                        self.vision_agent.run,
+                        scenario=scenario,
+                        cache=self.cache,
+                        client=self.client,
+                        mode=mode,
+                        simulate_latency=self.simulate_latency,
+                    ): "vision",
+                    executor.submit(
+                        self.telemetry_agent.run,
+                        scenario=scenario,
+                        telemetry_rows=telemetry_rows,
+                        cache=self.cache,
+                        client=self.client,
+                        mode=mode,
+                        simulate_latency=self.simulate_latency,
+                    ): "telemetry",
+                }
+                parallel_results = {}
+                for future in as_completed(futures):
+                    execution = future.result()
+                    parallel_results[futures[future]] = execution
+                    self._agent_events(trace_store, scenario, execution.to_dict())
+
+            vision = parallel_results["vision"]
+            telemetry = parallel_results["telemetry"]
 
             decision_context = build_decision_context(
                 scenario,

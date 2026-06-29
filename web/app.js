@@ -938,13 +938,18 @@ function runningAgentState(agent, progress, start, finish) {
 
 function renderAgents(agents, checkpoint = state.activeCheckpoint, activeAgent = null) {
   renderCheckpointAgents(checkpoint, agents, activeAgent);
-  const total = agents.reduce((sum, agent) => sum + Number(agent.response_time_ms || 0), 0);
-  if (total > 0) {
-    const gpuMs = Math.round(total * STANDARD_GPU_MULTIPLIER);
-    els.totalLatency.textContent = `Cerebras ${formatLatency(total)} | GPU sim ${formatLatency(gpuMs)}`;
+  const criticalPath = agentCriticalPathMs(agents);
+  if (criticalPath > 0) {
+    const gpuMs = Math.round(criticalPath * STANDARD_GPU_MULTIPLIER);
+    els.totalLatency.textContent = `Cerebras path ${formatLatency(criticalPath)} | GPU sim ${formatLatency(gpuMs)}`;
   } else {
     els.totalLatency.textContent = "--";
   }
+}
+
+function agentCriticalPathMs(agents) {
+  const byName = new Map((agents ?? []).map((agent) => [agent.agent, Number(agent.response_time_ms || 0)]));
+  return Math.max(byName.get("vision") ?? 0, byName.get("telemetry") ?? 0) + (byName.get("commander") ?? 0);
 }
 
 function renderCheckpointAgents(checkpoint, agents, activeAgent = null) {
@@ -957,20 +962,26 @@ function renderCheckpointAgents(checkpoint, agents, activeAgent = null) {
 
 function agentGraph(agents, checkpoint) {
   const checkpointLabel = checkpoint?.label ?? "Awaiting waypoint";
+  const vision = agents.find((agent) => agent.agent === "vision") ?? agents[0];
+  const waypoint = agents.find((agent) => agent.agent === "telemetry") ?? agents[1];
+  const commander = agents.find((agent) => agent.agent === "commander") ?? agents[2];
   return `
     <div class="agent-graph" aria-label="Agent communication graph">
-      ${agents
-        .map(
-          (agent, index) => `
-            <div class="agent-node ${escapeHtml(statusTone(agent))}">
-              <span>${escapeHtml(agent.shortLabel)}</span>
-              <strong>${escapeHtml(agentStatusLabel(agent))}</strong>
-            </div>
-            ${index < agents.length - 1 ? '<span class="agent-arrow">→</span>' : ""}
-          `,
-        )
-        .join("")}
+      ${agentNode(vision, "vision-node")}
+      ${agentNode(waypoint, "waypoint-node")}
+      <span class="agent-arrow vision-arrow">↘</span>
+      <span class="agent-arrow waypoint-arrow">↗</span>
+      ${agentNode(commander, "commander-node")}
       <p>${escapeHtml(checkpointLabel)}</p>
+    </div>
+  `;
+}
+
+function agentNode(agent, className) {
+  return `
+    <div class="agent-node ${escapeHtml(`${className} ${statusTone(agent)}`)}">
+      <span>${escapeHtml(agent.shortLabel)}</span>
+      <strong>${escapeHtml(agentStatusLabel(agent))}</strong>
     </div>
   `;
 }
@@ -1021,11 +1032,9 @@ function buildAgentViewModels(agents, checkpoint, activeAgent) {
 function statusForAgent(name, fallbackStatus, activeAgent, hasResults) {
   if (!hasResults) return fallbackStatus ?? "pending";
   if (!activeAgent) return "complete";
-  const order = ["vision", "telemetry", "commander"];
-  const agentIndex = order.indexOf(name);
-  const activeIndex = order.indexOf(activeAgent);
-  if (agentIndex < activeIndex) return "complete";
-  if (agentIndex === activeIndex) return "running";
+  const activeAgents = Array.isArray(activeAgent) ? activeAgent : [activeAgent];
+  if (activeAgents.includes(name)) return "running";
+  if (activeAgents.includes("commander") && (name === "vision" || name === "telemetry")) return "complete";
   return "queued";
 }
 
@@ -1237,12 +1246,14 @@ async function runCheckpointMission(apiPromise, started) {
 }
 
 async function revealCheckpointDecision(result, checkpoint, started, checkpointCount) {
-  const sequence = ["vision", "telemetry", "commander"];
-  for (const agentName of sequence) {
-    renderAgents(result.agents, checkpoint, agentName);
-    setMissionHud(checkpoint.progress, `${checkpoint.label}: ${agentDisplayName(agentName)} responding`, performance.now() - started);
-    await wait(agentRevealDelay(result.agents, agentName, checkpointCount));
-  }
+  renderAgents(result.agents, checkpoint, ["vision", "telemetry"]);
+  setMissionHud(checkpoint.progress, `${checkpoint.label}: Vision + Waypoint responding`, performance.now() - started);
+  await wait(parallelAgentRevealDelay(result.agents, checkpointCount));
+
+  renderAgents(result.agents, checkpoint, "commander");
+  setMissionHud(checkpoint.progress, `${checkpoint.label}: Commander waiting on comments`, performance.now() - started);
+  await wait(agentRevealDelay(result.agents, "commander", checkpointCount));
+
   state.activeDecision = decisionForCheckpoint(checkpoint, result.decision);
   renderDecision(result.decision, checkpoint);
   renderAgents(result.agents, checkpoint);
@@ -1259,6 +1270,10 @@ function agentRevealDelay(agents, agentName, checkpointCount) {
   const latency = Number(agent?.response_time_ms || 0);
   if (!latency) return 220;
   return clamp(Math.round(latency / Math.max(1, checkpointCount)), 180, 520);
+}
+
+function parallelAgentRevealDelay(agents, checkpointCount) {
+  return Math.max(agentRevealDelay(agents, "vision", checkpointCount), agentRevealDelay(agents, "telemetry", checkpointCount));
 }
 
 function wait(ms) {
