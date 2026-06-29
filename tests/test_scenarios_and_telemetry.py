@@ -8,23 +8,22 @@ from droneguard_multiverse.schemas.telemetry import TelemetryValidationError, lo
 from droneguard_multiverse.simulation.reachability import estimate_reachability
 
 
-def test_loader_returns_safe_and_dangerous_scenarios() -> None:
+def test_loader_returns_demo_scenarios() -> None:
     scenarios = {scenario.scenario_id: scenario for scenario in load_scenarios()}
 
-    assert "safe_mission" in scenarios
+    assert len(scenarios) == 2
     assert "dangerous_detour_low_battery" in scenarios
     assert "alexanderplatz_restricted" in scenarios
-    assert scenarios["safe_mission"].expected_action == "continue_mission"
     assert scenarios["dangerous_detour_low_battery"].expected_action == "return_to_start"
     assert scenarios["alexanderplatz_restricted"].expected_action == "detour_obstacle"
 
 
 def test_telemetry_parser_accepts_sample_csv() -> None:
-    scenario = load_scenario("safe_mission")
+    scenario = load_scenario("alexanderplatz_restricted")
     rows = load_telemetry_csv(scenario.resolve_asset_path(scenario.assets.telemetry_csv, DATA_DIR))
 
-    assert rows[0].battery_pct == 82.0
-    assert rows[-1].estimated_remaining_range_m == 1280.0
+    assert rows[0].battery_pct == 78.0
+    assert rows[-1].estimated_remaining_range_m == 920.0
 
 
 def test_telemetry_parser_rejects_missing_columns(tmp_path) -> None:

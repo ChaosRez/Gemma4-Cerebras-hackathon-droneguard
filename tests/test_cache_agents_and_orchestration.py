@@ -117,7 +117,7 @@ def test_vision_prompt_pins_raw_json_contract() -> None:
 
 
 def test_commander_prompt_rejects_action_shortcut() -> None:
-    scenario = load_scenario("safe_mission")
+    scenario = load_scenario("alexanderplatz_restricted")
     from droneguard_multiverse.integrations.cerebras.prompts import commander_prompt
 
     text = commander_prompt(
@@ -451,7 +451,7 @@ def test_run_health_flags_partial_fallback() -> None:
 
 
 def test_scenario_detail_includes_frame_urls() -> None:
-    detail = RunOrchestrator(simulate_latency=False).get_scenario_detail("safe_mission")
+    detail = RunOrchestrator(simulate_latency=False).get_scenario_detail("alexanderplatz_restricted")
 
-    assert detail["frame_urls"][0]["url"] == "/samples/safe/frames/frame_001.png"
-    assert load_scenario("safe_mission").scenario_id == detail["scenario_id"]
+    assert detail["frame_urls"][0]["url"] == "/samples/dangerous/frames/frame_001.png"
+    assert load_scenario("alexanderplatz_restricted").scenario_id == detail["scenario_id"]

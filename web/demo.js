@@ -5,17 +5,6 @@ const AGENT_DISPLAY_NAMES = {
 };
 
 const ORDER_PROFILES = {
-  safe_mission: {
-    order_id: "QD-BER-2847",
-    restaurant: "Mustafa's Gemüse Kebap",
-    restaurant_emoji: "🥙",
-    items: ["Gemüse Döner × 1", "Ayran × 1", "Pommes × 1"],
-    customer: "Lena Hoffmann",
-    address: "Kastanienallee 82, Prenzlauer Berg",
-    eta_minutes: 9,
-    price: "€11.50",
-    courier: "Drone QD-7",
-  },
   dangerous_detour_low_battery: {
     order_id: "QD-BER-2901",
     restaurant: "Mustafa's Gemüse Kebap",
