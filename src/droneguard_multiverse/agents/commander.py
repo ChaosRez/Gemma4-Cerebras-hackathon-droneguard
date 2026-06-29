@@ -86,7 +86,7 @@ class CommanderAgent:
             )
             why = [
                 "Vision or zone telemetry confirms restricted airspace on the autopilot corridor.",
-                "Zone Monitor estimates breach within seconds at current speed.",
+                "Waypoint Agent estimates breach within seconds at current speed.",
                 "Battery reserve still covers the detour and delivery completion.",
             ]
             confidence = 0.89

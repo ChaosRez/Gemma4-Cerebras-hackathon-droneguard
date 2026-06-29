@@ -71,15 +71,15 @@ Show the order card, map with the red **Alexanderplatz No-Fly** zone, and the pl
 
 1. Select **Standard · 200 tok/s**.
 2. Hit **Track order**.
-3. Narrate while the drone flies on autopilot:
+3. Narrate while the drone reaches WP2 and waits:
 
-> "The autopilot doesn't know about restricted airspace. Three Gemma agents — Route Scan, Zone Monitor, Flight Commander — need to reason over frames and telemetry. But at 200 tokens per second, inference is ten times slower."
+> "The drone pauses at the checkpoint while Vision and Waypoint agents inspect the next leg in parallel. The Commander waits for both comments before choosing the next action. At 200 tokens per second, the decision misses the safe maneuver window."
 
-Point at the agent timeline latencies scaling up (~7 s total). The drone keeps flying toward the zone.
+Point at the agent collaboration graph and latencies scaling up. The drone starts drifting on the autopilot corridor while Standard inference is still pending.
 
-> "By the time Flight Commander says *reroute around Alexanderplatz*, the drone has already breached the no-fly boundary. Delivery paused."
+> "By the time Commander says reroute around Alexanderplatz, QD-3 has already entered the no-fly boundary."
 
-Show the red breach banner and **No-fly breach** status.
+Show the red breach overlay, **No-fly breach** status, and **Standard path** latency summary.
 
 ### Act 3 — Cerebras Mode Save (0:35–0:55)
 
@@ -89,15 +89,15 @@ Show the red breach banner and **No-fly breach** status.
 
 > "Same order, same route, same agents — but Cerebras runs Gemma 4 at 2,150 tokens per second."
 
-Agents complete in under a second. The drone peels off on the yellow detour path around Alexanderplatz.
+Vision and Waypoint agents complete quickly, Commander decides after both responses, and the drone peels off on the yellow detour path around Alexanderplatz.
 
-> "Zone Monitor flags breach in six seconds. Flight Commander issues the detour in time. Döner stays hot. Delivery continues."
+> "Waypoint Agent flags the restricted corridor, Commander issues the detour, and the total scenario time drops because every checkpoint wait is shorter."
 
 Show **Detour complete** and the Commander message: *Reroute southeast around Alexanderplatz restricted airspace now.*
 
 ### Closing Line (0:55–1:00)
 
-> "In physical-world systems, inference speed isn't a benchmark — it's the difference between a safe reroute and a regulatory breach. That's DroneGuard on Cerebras."
+> "In physical-world systems, inference speed isn't just a benchmark — it is the difference between a safe collaborative reroute and a no-fly breach. That's DroneGuard on Cerebras."
 
 ## 90-Second Pitch Script
 

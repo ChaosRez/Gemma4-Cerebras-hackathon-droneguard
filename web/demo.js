@@ -1,7 +1,7 @@
 const AGENT_DISPLAY_NAMES = {
-  vision: "Route Scan",
-  telemetry: "Zone Monitor",
-  commander: "Flight Commander",
+  vision: "Vision Agent",
+  telemetry: "Waypoint Agent",
+  commander: "Commander",
 };
 
 const ORDER_PROFILES = {
@@ -41,9 +41,9 @@ const SCENARIO_PROFILES = {
     cerebras_summary: (tps) =>
       `Agents responded at ${tps.toLocaleString()} tok/s — detour issued before Alexanderplatz breach.`,
     standard_summary: (tps) =>
-      `Autopilot held too long at ${tps} tok/s — agents arrived after the drone entered Alexanderplatz restricted airspace.`,
+      `Standard inference at ${tps} tok/s arrived after the drone entered Alexanderplatz restricted airspace.`,
     standard_message: (tps) =>
-      `Autopilot flying toward Alexanderplatz — Standard inference at ${tps} tok/s is too slow to reroute in time…`,
+      `Standard inference is still running at ${tps} tok/s — autopilot is drifting toward Alexanderplatz before Commander can reroute…`,
   },
   dangerous_detour_low_battery: {
     zone_short: "Mauerpark",
@@ -55,9 +55,9 @@ const SCENARIO_PROFILES = {
     detour_action: "Rerouting around Mauerpark",
     cerebras_summary: () => "Agents responded in time — returning to kitchen before battery runs out.",
     standard_summary: (tps) =>
-      `Autopilot held too long at ${tps} tok/s — battery agents arrived too late to abort safely.`,
+      `Waypoint hold lasted longer at ${tps} tok/s — the return decision is safe, but total mission time increases.`,
     standard_message: (tps) =>
-      `Autopilot continuing toward Mauerpark — Standard inference at ${tps} tok/s is too slow…`,
+      `Drone holding near Mauerpark while Standard inference runs at ${tps} tok/s…`,
   },
 };
 
@@ -92,6 +92,13 @@ function isBreachDemoScenario(scenario) {
 }
 
 const MISSION_DURATION_MS = 6200;
+const FLIGHT_SEGMENT_MS = 2500;
+const DETOUR_FLIGHT_SEGMENT_MS = 5200;
+const RETURN_FLIGHT_SEGMENT_MS = 5600;
+const CHECKPOINT_SETTLE_MS = 180;
+const CHECKPOINT_AGENT_GAP_MS = 180;
+const STANDARD_FAILURE_HOLD_MS = 900;
+const STANDARD_FAILURE_DRIFT_MS = 3600;
 const CEREBRAS_TPS = 2150;
 const STANDARD_TPS = 200;
 
@@ -106,6 +113,8 @@ const state = {
   selectedId: null,
   scenario: null,
   result: null,
+  activeDecision: null,
+  activeCheckpoint: null,
   missionProgress: 0,
   animationFrame: null,
   agentStage: -1,
@@ -120,6 +129,7 @@ const state = {
   activeProvider: "cerebras",
   runMode: "replay",
   breachOccurred: false,
+  standardFailure: false,
   chart: null,
   flightPaths: null,
   rerouteActivated: false,
@@ -251,14 +261,9 @@ function isStandardProvider() {
 }
 
 function computeDecisionDelayMs(result, provider) {
-  const agentTotal = (result.agents ?? []).reduce(
-    (sum, agent) => sum + Number(agent.response_time_ms || 0),
-    0,
-  );
-  const baseLatency = Number(result.total_run_time_ms || agentTotal || 800);
+  const baseLatency = Number(result.total_run_time_ms || agentCriticalPathMs(result.agents) || 800);
   if (provider !== "slow_gpu") return 0;
-  // Agents must arrive just after the drone breaches (~6.2 s flight), not 20+ s later.
-  const targetStandardLatency = MISSION_DURATION_MS + 1400;
+  const targetStandardLatency = MISSION_DURATION_MS + 900;
   return Math.max(0, targetStandardLatency - baseLatency);
 }
 
@@ -324,14 +329,18 @@ async function selectScenario(scenarioId) {
   cancelMissionAnimation();
   state.selectedId = scenarioId;
   state.result = null;
+  state.activeDecision = null;
+  state.activeCheckpoint = null;
   state.missionProgress = 0;
   state.agentStage = -1;
   state.breachOccurred = false;
+  state.standardFailure = false;
   state.flightPaths = null;
   state.rerouteActivated = false;
-  state.rerouteAtProgress = 0.38;
+  state.rerouteAtProgress = waypointDecisionProgress(state.scenario);
   
   state.scenario = await getJson(`/api/scenarios/${encodeURIComponent(scenarioId)}`);
+  state.rerouteAtProgress = waypointDecisionProgress(state.scenario);
   
   setMissionStatus("Preparing", "green");
   setMissionHud(0, "Order confirmed");
@@ -435,12 +444,15 @@ async function runAgents() {
   if (!state.selectedId) return;
   cancelMissionAnimation();
   state.result = null;
+  state.activeDecision = null;
+  state.activeCheckpoint = null;
   state.missionProgress = 0;
   state.agentStage = -1;
   state.breachOccurred = false;
+  state.standardFailure = false;
   state.flightPaths = buildFlightPaths(state.scenario);
   state.rerouteActivated = false;
-  state.rerouteAtProgress = 0.38;
+  state.rerouteAtProgress = waypointDecisionProgress(state.scenario);
   
   // Clear any existing breach overlay
   const overlay = els.mapCanvas.querySelector(".breach-overlay");
@@ -458,7 +470,7 @@ async function runAgents() {
   els.decisionMessage.textContent = "AI agents are scanning the flight path, checking battery range, and looking for obstacles on your delivery route.";
   els.decisionReasons.innerHTML = "";
   
-  renderRunningAgents(0);
+  renderCheckpointAgents(buildDeliveryCheckpoints(state.scenario)[0], []);
   renderMission();
   renderFrames();
   renderTrace([]);
@@ -473,58 +485,45 @@ async function runAgents() {
     mode: runMode,
   });
 
-  const animationPromise = runMissionAnimation(MISSION_DURATION_MS);
   updateInferenceModeBadge(runMode);
 
   try {
-    const rawResult = await apiPromise;
-    const result = decorateProviderResult(rawResult, provider);
-    const decisionDelayMs = result._decision_delay_ms ?? 0;
+    const result = await runDeliveryCheckpointMission(apiPromise, provider, started);
+    state.result = result;
+    state.scenario = result.scenario;
 
-    if (provider === "slow_gpu") {
-      setMissionStatus("Autopilot", "amber");
-      els.decisionMessage.textContent = scenarioProfile(state.scenario).standard_message(STANDARD_TPS);
-      if (decisionDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, decisionDelayMs));
-      }
-      state.result = result;
-      renderDecision(result.decision);
-      renderAgents(result.agents);
-      renderTrace(result.trace_events, result);
+    if (!state.standardFailure) {
+      state.activeDecision = result.decision;
+      state.activeCheckpoint = buildDeliveryCheckpoints(result.scenario, result).at(-1) ?? null;
+      state.missionProgress = 1;
+      renderMission();
+      renderFrames();
+      setMissionHud(
+        1,
+        shouldUseDetourPath(state.scenario)
+          ? "Detour complete"
+          : shouldReturnToStart(state.scenario)
+            ? "Back at kitchen"
+            : "Arriving soon",
+      );
+      updateDeliveryStepper(1);
+      renderDecision(result.decision, state.activeCheckpoint);
+      setMissionStatus(isStandardProvider() ? "Completed slowly" : "Completed", isStandardProvider() ? "amber" : "green");
     } else {
-      state.result = result;
-      state.rerouteActivated = true;
-      renderDecision(result.decision);
-      renderAgents(result.agents);
-      renderTrace(result.trace_events, result);
-      setMissionStatus(shouldReturnToStart(state.scenario) ? "Returning" : "Rerouting", "green");
+      renderMission();
+      renderFrames();
+      renderStandardFailureDecision(state.activeCheckpoint, result.decision);
+      setMissionStatus("No-fly breach", "red");
+      setMissionHud(state.missionProgress, "Restricted zone breach", performance.now() - started);
     }
 
-    await animationPromise;
-
-    if (provider === "slow_gpu") {
-      setMissionStatus(isBreachDemoScenario(state.scenario) ? "No-fly breach" : "Delivery paused", "red");
-    }
-
-    state.missionProgress = 1;
-    renderMission();
-    renderFrames();
-    setMissionHud(
-      1,
-      provider === "slow_gpu"
-        ? (isBreachDemoScenario(state.scenario) ? "Restricted zone breach" : "Route blocked")
-        : (shouldUseDetourPath(state.scenario) ? "Detour complete" : "Returning to kitchen"),
-    );
-    updateDeliveryStepper(1);
-
-    if (provider === "slow_gpu" && state.scenario?.obstacles?.length) {
-      triggerBreachOverlay();
-    }
+    renderAgents(result.agents, state.activeCheckpoint);
+    renderTrace(result.trace_events, result);
 
     const elapsed = performance.now() - started;
-    els.totalLatency.textContent = `${Math.round(elapsed)} ms`;
+    const criticalPath = agentCriticalPathMs(result.agents);
+    els.totalLatency.textContent = `${formatLatency(criticalPath)} critical path · ${(elapsed / 1000).toFixed(1)} s run`;
   } catch (error) {
-    await animationPromise.catch(() => undefined);
     setMissionStatus("Error", "red");
     els.decisionAction.textContent = "Something went wrong";
     els.decisionMessage.textContent = error.message;
@@ -546,15 +545,16 @@ function triggerBreachOverlay() {
 function renderMission() {
   const scenario = state.scenario;
   if (!scenario) return;
+  const decision = state.activeDecision ?? state.result?.decision ?? null;
   
   updateBatteryHUD(state.missionProgress);
   updateTelemetryHUD(state.missionProgress);
   
   if (canUseMapLibre()) {
     ensureMissionMap(scenario);
-    updateMissionMap(scenario, state.result?.decision, state.missionProgress);
+    updateMissionMap(scenario, decision, state.missionProgress);
   } else {
-    els.mapCanvas.innerHTML = buildMapSvg(scenario, state.result?.decision, state.missionProgress);
+    els.mapCanvas.innerHTML = buildMapSvg(scenario, decision, state.missionProgress);
   }
 }
 
@@ -605,7 +605,7 @@ function ensureMissionMap(scenario) {
         state.mapReady = true;
         installMissionMapLayers(state.map);
         refreshMissionMapScenario(scenario);
-        updateMissionMap(scenario, state.result?.decision, state.missionProgress);
+        updateMissionMap(scenario, state.activeDecision ?? state.result?.decision, state.missionProgress);
       });
       
       state.map.on("error", (e) => {
@@ -626,7 +626,7 @@ function ensureMissionMap(scenario) {
       console.warn("MapLibre GL initialization failed, falling back to SVG", error);
       state.mapUnavailable = true;
       state.map = null;
-      els.mapCanvas.innerHTML = buildMapSvg(scenario, state.result?.decision, state.missionProgress);
+      els.mapCanvas.innerHTML = buildMapSvg(scenario, state.activeDecision ?? state.result?.decision, state.missionProgress);
     }
   } else if (state.mapScenarioId !== scenario.scenario_id && state.mapReady) {
     refreshMissionMapScenario(scenario);
@@ -791,7 +791,7 @@ function refreshMissionMapScenario(scenario) {
   const paths = buildFlightPaths(scenario);
   state.flightPaths = paths;
   setSourceData("route-line", lineFeature(paths.autopilot));
-  setSourceData("detour-line", lineFeature(isStandardProvider() ? [] : paths.detour));
+  setSourceData("detour-line", lineFeature([]));
   
   // Restricted Obstacle Zone
   const obstacles = [];
@@ -924,7 +924,7 @@ function updateMissionMap(scenario, decision, progress) {
   setSourceData(
     "detour-line",
     lineFeature(
-      state.rerouteActivated && !isStandardProvider()
+      state.rerouteActivated
         ? state.flightPaths?.detour ?? buildFlightPaths(scenario).detour
         : [],
     ),
@@ -1061,7 +1061,7 @@ function resolveFlightCoordinate(scenario, progress) {
     return pointAlongGeoPath(paths.autopilot, routeProgress);
   }
 
-  if (isStandardProvider()) {
+  if (state.standardFailure && isBreachDemoScenario(scenario)) {
     return pointAlongGeoPath(paths.autopilot, routeProgress);
   }
 
@@ -1103,7 +1103,11 @@ function resolveProgressPath(scenario, progress) {
   const paths = getFlightPaths(scenario);
   const routeProgress = clamp(progress, 0, 1);
 
-  if (!scenario.obstacles?.length || isStandardProvider()) {
+  if (!scenario.obstacles?.length) {
+    return partialGeoPath(paths.autopilot, routeProgress);
+  }
+
+  if (state.standardFailure && isBreachDemoScenario(scenario)) {
     return partialGeoPath(paths.autopilot, routeProgress);
   }
 
@@ -1153,7 +1157,10 @@ function isInsideRestrictedZone(scenario, coord) {
 
 function animationCoordinates(scenario) {
   const paths = getFlightPaths(scenario);
-  if (isStandardProvider() || !state.rerouteActivated) {
+  if (state.standardFailure && isBreachDemoScenario(scenario)) {
+    return paths.autopilot;
+  }
+  if (!state.rerouteActivated) {
     return paths.autopilot;
   }
   if (shouldReturnToStart(scenario)) {
@@ -1265,6 +1272,198 @@ function cancelMissionAnimation() {
   }
 }
 
+async function runDeliveryCheckpointMission(apiPromise, provider, started) {
+  let resolvedResult = null;
+  const resultPromise = apiPromise.then((rawResult) => {
+    resolvedResult = decorateProviderResult(rawResult, provider);
+    return resolvedResult;
+  });
+
+  const previewCheckpoints = buildDeliveryCheckpoints(state.scenario);
+  for (let index = 0; index < previewCheckpoints.length; index += 1) {
+    const preview = previewCheckpoints[index];
+    state.activeCheckpoint = preview;
+    state.rerouteAtProgress = waypointDecisionProgress(state.scenario);
+    await animateMissionSegment(
+      state.missionProgress,
+      preview.progress,
+      flightSegmentDuration(preview, provider),
+      `Flying to ${preview.label}`,
+      started,
+    );
+    setMissionHud(preview.progress, `${preview.label} reached — awaiting Commander`, performance.now() - started);
+    renderCheckpointAgents(preview, []);
+    await wait(CHECKPOINT_SETTLE_MS);
+
+    const result = resolvedResult ?? (await resultPromise);
+    state.result = result;
+    state.scenario = result.scenario;
+    const checkpoints = buildDeliveryCheckpoints(result.scenario, result);
+    const checkpoint = checkpoints[Math.min(index, checkpoints.length - 1)];
+    state.activeCheckpoint = checkpoint;
+    const stoppedEarly = await revealCheckpointDecision(result, checkpoint, started, checkpoints.length);
+    if (stoppedEarly) return result;
+    if (checkpoint.final) return result;
+  }
+  return resolvedResult ?? (await resultPromise);
+}
+
+async function revealCheckpointDecision(result, checkpoint, started, checkpointCount) {
+  const standard = result.provider === "standard";
+  const profile = scenarioProfile(state.scenario);
+  const standardFailure = shouldStandardBreachBeforeInstruction(result, checkpoint);
+  setMissionStatus(standard ? "Standard inferencing" : "Agents reviewing", standard ? "amber" : "blue");
+  els.decisionMessage.textContent = standard
+    ? profile.standard_message(STANDARD_TPS)
+    : `${checkpoint.label} reached. Vision and Waypoint agents are checking the next leg in parallel.`;
+  renderAgents(result.agents, checkpoint, ["vision", "telemetry"]);
+  setMissionHud(checkpoint.progress, `${checkpoint.label}: Vision + Waypoint responding`, performance.now() - started);
+
+  if (standardFailure) {
+    await wait(STANDARD_FAILURE_HOLD_MS);
+    state.standardFailure = true;
+    const breachProgress = standardFailureProgress(state.scenario, checkpoint.progress);
+    setMissionStatus("Autopilot overrun", "red");
+    await animateMissionSegment(
+      checkpoint.progress,
+      breachProgress,
+      STANDARD_FAILURE_DRIFT_MS,
+      "Autopilot overrun — awaiting Standard inference",
+      started,
+    );
+  } else {
+    await wait(parallelAgentRevealDelay(result.agents, checkpointCount));
+  }
+
+  renderAgents(result.agents, checkpoint, "commander");
+  setMissionHud(
+    state.missionProgress,
+    standardFailure ? "Commander response arrived after breach" : `${checkpoint.label}: Commander waiting on comments`,
+    performance.now() - started,
+  );
+  await wait(agentRevealDelay(result.agents, "commander", checkpointCount));
+
+  state.activeDecision = standardFailure
+    ? standardFailureDecision(checkpoint, result.decision)
+    : decisionForCheckpoint(checkpoint, result.decision);
+  if (checkpoint.action !== "continue_mission") {
+    if (standardFailure) {
+      state.standardFailure = true;
+    } else {
+      state.rerouteActivated = true;
+      state.rerouteAtProgress = checkpoint.progress;
+    }
+  }
+  if (standardFailure) {
+    renderStandardFailureDecision(checkpoint, result.decision);
+  } else {
+    renderDecision(result.decision, checkpoint);
+  }
+  renderAgents(result.agents, checkpoint);
+  renderMission();
+  renderFrames();
+  renderTrace(result.trace_events, result);
+  setMissionStatus(
+    standardFailure ? "No-fly breach" : checkpoint.action === "continue_mission" ? "Cleared" : checkpoint.actionLabel,
+    standardFailure ? "red" : checkpoint.action === "continue_mission" ? "green" : "amber",
+  );
+  setMissionHud(
+    state.missionProgress,
+    standardFailure ? `${profile.zone_short} breach — instruction arrived late` : `${checkpoint.label}: ${checkpoint.actionLabel}`,
+    performance.now() - started,
+  );
+  await wait(CHECKPOINT_AGENT_GAP_MS);
+  return standardFailure;
+}
+
+function flightSegmentDuration(checkpoint, provider) {
+  const providerFactor = provider === "slow_gpu" ? 1.08 : 1;
+  if (checkpoint?.waypoint_id === "home" || (checkpoint?.final && checkpoint?.action === "return_to_start")) {
+    return Math.round(RETURN_FLIGHT_SEGMENT_MS * providerFactor);
+  }
+  if (checkpoint?.final && checkpoint?.action === "detour_obstacle") {
+    return Math.round(DETOUR_FLIGHT_SEGMENT_MS * providerFactor);
+  }
+  return Math.round(FLIGHT_SEGMENT_MS * providerFactor);
+}
+
+function shouldStandardBreachBeforeInstruction(result, checkpoint) {
+  return (
+    result.provider === "standard" &&
+    checkpoint?.action === "detour_obstacle" &&
+    !checkpoint.final &&
+    isBreachDemoScenario(state.scenario)
+  );
+}
+
+function standardFailureProgress(scenario, fromProgress) {
+  for (let progress = fromProgress; progress <= 1; progress += 0.002) {
+    if (isInsideRestrictedZone(scenario, resolveFlightCoordinate(scenario, progress))) {
+      return clamp(progress, fromProgress, 1);
+    }
+  }
+  return 1;
+}
+
+function standardFailureDecision(checkpoint, finalDecision) {
+  const profile = scenarioProfile(state.scenario);
+  return {
+    recommended_action: "no_fly_breach",
+    confidence: finalDecision.confidence,
+    operator_message: `Commander selected ${formatAction(finalDecision.recommended_action)}, but QD-3 had already entered ${profile.zone_short} before the instruction arrived.`,
+    why: [
+      `Standard GPU response arrived after the safe maneuver window at ${checkpoint.label}.`,
+      "Autopilot continued on the direct corridor while waiting for Commander.",
+      `${profile.zone_short} restricted airspace was breached before reroute execution.`,
+    ],
+  };
+}
+
+function agentRevealDelay(agents, agentName, checkpointCount) {
+  const agent = agents.find((item) => item.agent === agentName);
+  const latency = Number(agent?.response_time_ms || 0);
+  const standard = agents.some((item) => item.mode === "standard_replay" || item.mode === "slow_gpu");
+  if (!latency) return standard ? 700 : 220;
+  return clamp(
+    Math.round(latency / Math.max(1, checkpointCount)),
+    standard ? 650 : 180,
+    standard ? 2400 : 520,
+  );
+}
+
+function parallelAgentRevealDelay(agents, checkpointCount) {
+  return Math.max(
+    agentRevealDelay(agents, "vision", checkpointCount),
+    agentRevealDelay(agents, "telemetry", checkpointCount),
+  );
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function animateMissionSegment(fromProgress, toProgress, durationMs, phase, started) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    const startProgress = clamp(fromProgress, 0, 1);
+    const targetProgress = clamp(toProgress, 0, 1);
+    const tick = (now) => {
+      const elapsed = now - start;
+      const ratio = clamp(elapsed / durationMs, 0, 1);
+      const progress = startProgress + (targetProgress - startProgress) * ratio;
+      state.missionProgress = progress;
+      updateMission(progress, now - started, phase);
+      if (ratio < 1) {
+        state.animationFrame = requestAnimationFrame(tick);
+      } else {
+        state.animationFrame = null;
+        resolve();
+      }
+    };
+    state.animationFrame = requestAnimationFrame(tick);
+  });
+}
+
 function fitMissionBounds(scenario) {
   const bounds = new window.maplibregl.LngLatBounds();
   for (const coord of [...routeCoordinates(scenario), ...animationCoordinates(scenario), ...detourCoordinates(scenario)]) {
@@ -1297,11 +1496,12 @@ function runMissionAnimation(durationMs) {
   });
 }
 
-function updateMission(progress, elapsedMs) {
+function updateMission(progress, elapsedMs, phaseOverride = null) {
   renderMission();
+  renderFrames();
   
   // Real-time signals graph update
-  setMissionHud(progress, missionPhase(progress, state.scenario));
+  setMissionHud(progress, phaseOverride ?? missionPhase(progress, state.scenario), elapsedMs);
 
   if (
     isStandardProvider() &&
@@ -1320,8 +1520,8 @@ function updateMission(progress, elapsedMs) {
   }
 }
 
-function setMissionHud(progress, phase) {
-  const seconds = progress * (MISSION_DURATION_MS / 1000);
+function setMissionHud(progress, phase, elapsedMs = null) {
+  const seconds = elapsedMs === null ? progress * (MISSION_DURATION_MS / 1000) : elapsedMs / 1000;
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   els.clockVal.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
@@ -1335,9 +1535,9 @@ function setMissionHud(progress, phase) {
 
 function missionPhase(progress, scenario) {
   if (progress <= 0) return "Order confirmed";
-  if (!state.result && els.runButton.disabled && isStandardProvider()) return "Autopilot — awaiting AI";
+  if (state.activeCheckpoint && els.runButton.disabled) return `${state.activeCheckpoint.label} checkpoint`;
   const profile = scenarioProfile(scenario);
-  if (state.rerouteActivated && !isStandardProvider() && progress >= state.rerouteAtProgress) {
+  if (state.rerouteActivated && progress >= state.rerouteAtProgress) {
     if (shouldUseDetourPath(scenario)) return profile.detour_phase;
     if (shouldReturnToStart(scenario)) return "Returning to kitchen";
   }
@@ -1346,12 +1546,10 @@ function missionPhase(progress, scenario) {
   if (progress < 0.66) return scenario?.obstacles?.length ? profile.approach_phase : "Navigating city";
   if (progress < 0.82) return scenario?.obstacles?.length ? "Autopilot corridor ahead" : "Turning onto your street";
   if (progress < 0.96) {
-    if (isStandardProvider() && isBreachDemoScenario(scenario)) return "Entering restricted zone";
-    if (!isStandardProvider() && shouldReturnToStart(scenario) && state.rerouteActivated) return "Returning to kitchen";
+    if (shouldReturnToStart(scenario) && state.rerouteActivated) return "Returning to kitchen";
     return "Verifying safe landing";
   }
-  if (isStandardProvider() && isBreachDemoScenario(scenario)) return "Restricted zone breach";
-  if (!isStandardProvider() && shouldReturnToStart(scenario)) return "Back at kitchen";
+  if (shouldReturnToStart(scenario)) return "Back at kitchen";
   return "Arriving soon";
 }
 
@@ -1410,14 +1608,30 @@ function resetDecision() {
   els.decisionAction.className = "action-banner";
   els.decisionMessage.textContent = "Your order is being prepared. Hit Track order to watch AI-powered drone routing.";
   els.decisionReasons.innerHTML = "";
+  els.totalLatency.textContent = "--";
 }
 
-function renderDecision(decision) {
+function renderDecision(decision, checkpoint = state.activeCheckpoint) {
+  const checkpointDecision = checkpoint ? decisionForCheckpoint(checkpoint, decision) : decision;
+  els.decisionConfidence.textContent = `${Math.round(checkpointDecision.confidence * 100)}%`;
+  els.decisionAction.textContent = formatAction(checkpointDecision.recommended_action);
+  els.decisionAction.className = `action-banner ${checkpointDecision.recommended_action}`;
+  els.decisionMessage.textContent = displayCopy(checkpointDecision.operator_message);
+
+  els.decisionReasons.innerHTML = "";
+  for (const why of checkpointDecision.why) {
+    const p = document.createElement("p");
+    p.textContent = displayCopy(why);
+    els.decisionReasons.append(p);
+  }
+}
+
+function renderStandardFailureDecision(checkpoint, finalDecision) {
+  const decision = standardFailureDecision(checkpoint, finalDecision);
   els.decisionConfidence.textContent = `${Math.round(decision.confidence * 100)}%`;
   els.decisionAction.textContent = formatAction(decision.recommended_action);
   els.decisionAction.className = `action-banner ${decision.recommended_action}`;
   els.decisionMessage.textContent = displayCopy(decision.operator_message);
-  
   els.decisionReasons.innerHTML = "";
   for (const why of decision.why) {
     const p = document.createElement("p");
@@ -1427,18 +1641,16 @@ function renderDecision(decision) {
 }
 
 function renderEmptyAgents() {
-  els.agentTimeline.innerHTML = ["vision", "telemetry", "commander"]
-    .map((name) => agentCard({ agent: name, status: "pending", mode: "--", response_time_ms: "--" }))
-    .join("");
+  renderCheckpointAgents(null, []);
 }
 
 function renderRunningAgents(progress) {
   const agents = [
-    runningAgentState("vision", progress, 0.08, 0.36),
-    runningAgentState("telemetry", progress, 0.22, 0.58),
+    runningAgentState("vision", progress, 0.08, 0.44),
+    runningAgentState("telemetry", progress, 0.08, 0.44),
     runningAgentState("commander", progress, 0.58, 0.94),
   ];
-  els.agentTimeline.innerHTML = agents.map(agentCard).join("");
+  renderCheckpointAgents(state.activeCheckpoint, agents);
 }
 
 function runningAgentState(agent, progress, start, finish) {
@@ -1453,22 +1665,68 @@ function runningAgentState(agent, progress, start, finish) {
   };
 }
 
-function renderAgents(agents) {
-  els.agentTimeline.innerHTML = agents.map(agentCard).join("");
-  const total = agents.reduce((sum, agent) => sum + Number(agent.response_time_ms || 0), 0);
-  els.totalLatency.textContent = `${total} ms`;
+function renderAgents(agents, checkpoint = state.activeCheckpoint, activeAgent = null) {
+  renderCheckpointAgents(checkpoint, agents, activeAgent);
+  const criticalPath = agentCriticalPathMs(agents);
+  if (!criticalPath) {
+    els.totalLatency.textContent = "--";
+    return;
+  }
+  const standard = agents.some((agent) => agent.mode === "standard_replay" || agent.mode === "slow_gpu");
+  if (standard) {
+    const cerebrasEstimate = Math.round(criticalPath * (STANDARD_TPS / CEREBRAS_TPS));
+    els.totalLatency.textContent = `Standard path ${formatLatency(criticalPath)} · Cerebras est ${formatLatency(cerebrasEstimate)}`;
+  } else {
+    const gpuEstimate = Math.round(criticalPath * (CEREBRAS_TPS / STANDARD_TPS));
+    els.totalLatency.textContent = `Cerebras path ${formatLatency(criticalPath)} · Standard sim ${formatLatency(gpuEstimate)}`;
+  }
 }
 
+function agentCriticalPathMs(agents) {
+  const byName = new Map((agents ?? []).map((agent) => [agent.agent, Number(agent.response_time_ms || 0)]));
+  return Math.max(byName.get("vision") ?? 0, byName.get("telemetry") ?? 0) + (byName.get("commander") ?? 0);
+}
+
+function renderCheckpointAgents(checkpoint, agents, activeAgent = null) {
+  const models = buildAgentViewModels(agents, checkpoint, activeAgent);
+  els.agentTimeline.innerHTML = `
+    ${agentGraph(models, checkpoint)}
+    ${models.map(agentCard).join("")}
+  `;
+}
+
+function agentGraph(agents, checkpoint) {
+  const checkpointLabel = checkpoint?.label ?? "Awaiting waypoint";
+  const vision = agents.find((agent) => agent.agent === "vision") ?? agents[0];
+  const waypoint = agents.find((agent) => agent.agent === "telemetry") ?? agents[1];
+  const commander = agents.find((agent) => agent.agent === "commander") ?? agents[2];
+  return `
+    <div class="agent-graph" aria-label="Agent communication graph">
+      ${agentNode(vision, "vision-node")}
+      ${agentNode(waypoint, "waypoint-node")}
+      <span class="agent-arrow vision-arrow">↘</span>
+      <span class="agent-arrow waypoint-arrow">↗</span>
+      ${agentNode(commander, "commander-node")}
+      <p>${escapeHtml(checkpointLabel)} · Vision + Waypoint feed Commander</p>
+    </div>
+  `;
+}
+
+function agentNode(agent, className) {
+  return `
+    <div class="agent-node ${escapeHtml(`${className} ${statusTone(agent)}`)}">
+      <span>${escapeHtml(agent.shortLabel)}</span>
+      <strong>${escapeHtml(agentStatusLabel(agent))}</strong>
+    </div>
+  `;
+}
 
 function agentCard(agent) {
-  const output = agent.normalized_output ? pretty(agent.normalized_output) : "";
-  const raw = agent.response ? pretty(agent.response) : "";
   const modeLabel = agentModeLabel(agent);
-  const displayName = AGENT_DISPLAY_NAMES[agent.agent] || titleCase(agent.agent);
   return `
     <article class="agent-card ${escapeHtml(agentStatusClass(agent))}">
       <header>
-        <h3>${escapeHtml(displayName)}</h3>
+        <h3>${escapeHtml(agent.displayName ?? AGENT_DISPLAY_NAMES[agent.agent] ?? titleCase(agent.agent))}</h3>
         <div class="agent-badges">
           ${agentBadge(agentStatusLabel(agent), statusTone(agent))}
           ${modeLabel !== "--" ? agentBadge(modeLabel, modeTone(agent)) : ""}
@@ -1479,14 +1737,79 @@ function agentCard(agent) {
         <span>${escapeHtml(formatLatency(agent.response_time_ms))}</span>
         ${agent.error ? `<strong>${escapeHtml(agent.error)}</strong>` : ""}
       </div>
-      ${output ? `<pre class="compact-pre">${escapeHtml(output)}</pre>` : ""}
-      ${
-        raw
-          ? `<details><summary>Payloads</summary><pre class="compact-pre">${escapeHtml(pretty({ request: agent.request, response: agent.response, cache_key: agent.cache_key, error: agent.error }))}</pre></details>`
-          : ""
-      }
+      <p class="agent-brief">${escapeHtml(displayCopy(agent.brief ?? "Waiting for waypoint evidence."))}</p>
     </article>
   `;
+}
+
+function buildAgentViewModels(agents, checkpoint, activeAgent) {
+  const byName = new Map((agents ?? []).map((agent) => [agent.agent, agent]));
+  const order = ["vision", "telemetry", "commander"];
+  return order.map((name) => {
+    const base = byName.get(name) ?? {
+      agent: name,
+      status: "pending",
+      mode: state.activeProvider,
+      response_time_ms: "--",
+      cache_hit: false,
+    };
+    const status = statusForAgent(name, base.status, activeAgent, byName.size > 0);
+    return {
+      ...base,
+      status,
+      displayName: agentDisplayName(name),
+      shortLabel: agentShortLabel(name),
+      brief: agentBrief(name, base, checkpoint),
+    };
+  });
+}
+
+function statusForAgent(name, fallbackStatus, activeAgent, hasResults) {
+  if (!hasResults) return fallbackStatus ?? "pending";
+  if (!activeAgent) return "complete";
+  const activeAgents = Array.isArray(activeAgent) ? activeAgent : [activeAgent];
+  if (activeAgents.includes(name)) return "running";
+  if (activeAgents.includes("commander") && (name === "vision" || name === "telemetry")) return "complete";
+  return "queued";
+}
+
+function agentDisplayName(name) {
+  return AGENT_DISPLAY_NAMES[name] ?? titleCase(name);
+}
+
+function agentShortLabel(name) {
+  if (name === "telemetry") return "Waypoint";
+  if (name === "commander") return "Commander";
+  return "Vision";
+}
+
+function agentBrief(name, agent, checkpoint) {
+  const output = agent.normalized_output ?? {};
+  if (name === "vision") {
+    const hazards = output.hazards ?? [];
+    if (hazards.length) {
+      const hazard = hazards[0];
+      return `${checkpoint?.label ?? "Route"}: ${formatToken(hazard.type)} at ${formatSeverity(hazard.severity)} severity.`;
+    }
+    return `${checkpoint?.label ?? "Route"}: sampled frames remain clear.`;
+  }
+  if (name === "telemetry") {
+    const reachability = output.mission_reachability ?? {};
+    const flags = output.risk_flags ?? [];
+    const critical = flags.find((flag) => flag.severity === "high") ?? flags[0];
+    if (critical) {
+      return `${formatToken(critical.type)}: ${critical.evidence ?? "metric threshold crossed"}`;
+    }
+    if (reachability.reserve_after_return_m !== undefined) {
+      return `Reserve ${Math.round(reachability.reserve_after_return_m)} m after route and return buffer.`;
+    }
+    return "Waypoint metrics queued for Commander review.";
+  }
+  if (name === "commander") {
+    if (checkpoint) return checkpoint.message;
+    return output.operator_message ?? "Awaiting waypoint evidence before choosing the next leg.";
+  }
+  return "";
 }
 
 function agentBadge(label, tone) {
@@ -1547,6 +1870,108 @@ function formatLatency(value) {
   return Number.isFinite(number) ? `${number} ms` : "-- ms";
 }
 
+function buildDeliveryCheckpoints(scenario, result = null) {
+  if (!scenario?.waypoints?.length) return [];
+  const finalAction = result?.decision?.recommended_action ?? scenario.expected_action;
+  const waypoints = scenario.waypoints;
+  const checkpoints = [];
+  const denominator = Math.max(1, waypoints.length);
+  for (const [index, waypoint] of waypoints.entries()) {
+    const isDecisionWaypoint = index === Math.min(1, waypoints.length - 1);
+    const isFinalWaypoint = index === waypoints.length - 1;
+    const action = isDecisionWaypoint && finalAction !== "continue_mission" ? finalAction : "continue_mission";
+    checkpoints.push(
+      deliveryCheckpointModel({
+        index,
+        waypoint,
+        progress: (index + 1) / denominator,
+        action: isFinalWaypoint ? finalAction : action,
+        final: isFinalWaypoint && finalAction !== "return_to_start",
+        scenario,
+      }),
+    );
+    if (isDecisionWaypoint && finalAction === "return_to_start") {
+      checkpoints.push(
+        deliveryCheckpointModel({
+          index: index + 1,
+          waypoint: { id: "home", label: "Return-to-start corridor" },
+          progress: 1,
+          action: finalAction,
+          final: true,
+          scenario,
+        }),
+      );
+      break;
+    }
+  }
+  return checkpoints;
+}
+
+function deliveryCheckpointModel({ index, waypoint, progress, action, final, scenario }) {
+  const label = waypoint.id === "home" ? "Kitchen" : `WP${Math.min(index + 1, scenario.waypoints.length)}`;
+  const actionLabel = formatAction(action);
+  const next = scenario.waypoints[index + 1]?.label ?? "customer drop-off";
+  const messageByAction = {
+    continue_mission: final
+      ? `${label} reached. Commander confirms the route remains safe.`
+      : `${label} reached. Commander clears the next leg toward ${next}.`,
+    detour_obstacle: final
+      ? `${label} reached after reroute. Restricted airspace remains avoided.`
+      : `${label} reached. Commander routes around ${scenarioProfile(scenario).zone_short}.`,
+    return_to_start:
+      waypoint.id === "home"
+        ? "Return corridor complete. Commander skipped the delivery endpoint to preserve reserve."
+        : `${label} reached. Commander sends the drone back to the kitchen before reserve is exhausted.`,
+    hold_position: `${label} reached. Commander holds position pending operator review.`,
+  };
+  const whyByAction = {
+    continue_mission: [
+      "Waypoint metrics are inside the current safety envelope.",
+      "No Commander override is required for the next leg.",
+    ],
+    detour_obstacle: [
+      `${scenarioProfile(scenario).zone_short} intersects the autopilot corridor.`,
+      "The detour preserves delivery progress while avoiding restricted airspace.",
+    ],
+    return_to_start: [
+      "The route no longer preserves enough reserve for delivery and return.",
+      "Returning now is the safest reachable action.",
+    ],
+    hold_position: ["Holding avoids committing to an unsafe next leg."],
+  };
+  return {
+    index,
+    waypoint_id: waypoint.id,
+    waypoint_label: waypoint.label,
+    label,
+    progress,
+    action,
+    actionLabel,
+    message: messageByAction[action] ?? messageByAction.continue_mission,
+    reasons: whyByAction[action] ?? whyByAction.continue_mission,
+    final,
+  };
+}
+
+function decisionForCheckpoint(checkpoint, finalDecision) {
+  const finalAction = finalDecision.recommended_action;
+  const confidence = checkpoint.action === finalAction
+    ? finalDecision.confidence
+    : Math.max(0.72, finalDecision.confidence - 0.08);
+  return {
+    recommended_action: checkpoint.action,
+    confidence,
+    operator_message: checkpoint.message,
+    why: checkpoint.reasons,
+  };
+}
+
+function waypointDecisionProgress(scenario) {
+  if (!scenario?.waypoints?.length) return 0.38;
+  const decisionIndex = Math.min(1, scenario.waypoints.length - 1);
+  return (decisionIndex + 1) / Math.max(1, scenario.waypoints.length);
+}
+
 function renderFrames() {
   const scenario = state.scenario;
   if (!scenario) return;
@@ -1567,7 +1992,7 @@ function renderFrames() {
 }
 
 function renderTrace(events, result = state.result) {
-  els.traceSummary.textContent = events.length ? `${events.length} events` : "Idle";
+  els.traceSummary.textContent = events.length ? `${events.length} events · payloads` : "Idle";
   if (!events.length) {
     els.traceEvents.innerHTML = `<p style="color:var(--text-muted);font-size:0.75rem;margin:0;">Start a delivery run to see the dispatch log.</p>`;
     return;
@@ -1602,7 +2027,31 @@ function renderTrace(events, result = state.result) {
         </div>
       `).join("")}
     </div>
+    <div class="trace-payloads">
+      <h3>Agent payloads</h3>
+      <pre class="dispatch-pre">${escapeHtml(pretty(agentPayloadLog(result)))}</pre>
+    </div>
+    <div class="trace-payloads">
+      <h3>Event JSONL view</h3>
+      <pre class="dispatch-pre">${escapeHtml(pretty(events))}</pre>
+    </div>
   `;
+}
+
+function agentPayloadLog(result) {
+  return (result?.agents ?? []).map((agent) => ({
+    agent: agent.agent,
+    status: agent.status,
+    mode: agent.mode,
+    cache_hit: agent.cache_hit,
+    response_time_ms: agent.response_time_ms,
+    model: agent.model,
+    cache_key: agent.cache_key,
+    request: agent.request,
+    response: agent.response,
+    normalized_output: agent.normalized_output,
+    error: agent.error,
+  }));
 }
 
 function formatTime(timestamp) {
@@ -1645,6 +2094,14 @@ function titleCase(value) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function formatToken(value) {
+  return titleCase(String(value ?? "").replace(/_/g, " "));
+}
+
+function formatSeverity(value) {
+  return String(value ?? "unknown").toLowerCase();
+}
+
 function formatAction(value) {
   if (!value) return "—";
   const labels = {
@@ -1653,6 +2110,7 @@ function formatAction(value) {
     hold_position: "Hovering — hold tight",
     detour_obstacle: scenarioProfile(state.scenario).detour_action,
     assessing_route: "Checking best route",
+    no_fly_breach: "No-fly breach",
   };
   return labels[value] ?? titleCase(value);
 }

@@ -22,6 +22,13 @@ from droneguard_multiverse.schemas.telemetry import TelemetryRow, load_telemetry
 from droneguard_multiverse.simulation.reachability import risk_level_from_score
 
 
+AGENT_EVENT_LABELS = {
+    "vision": "Vision Agent",
+    "telemetry": "Waypoint Agent",
+    "commander": "Commander Agent",
+}
+
+
 class RunOrchestrator:
     def __init__(
         self,
@@ -92,7 +99,7 @@ class RunOrchestrator:
             )
 
             self._event(trace_store, scenario, "agent_request_started", "Vision Agent started.", agent="vision")
-            self._event(trace_store, scenario, "agent_request_started", "Zone Monitor started.", agent="telemetry")
+            self._event(trace_store, scenario, "agent_request_started", "Waypoint Agent started.", agent="telemetry")
             with ThreadPoolExecutor(max_workers=2, thread_name_prefix="droneguard-agent") as executor:
                 futures = {
                     executor.submit(
@@ -187,12 +194,13 @@ class RunOrchestrator:
         return load_telemetry_csv(scenario.resolve_asset_path(scenario.assets.telemetry_csv, self.data_dir))
 
     def _agent_events(self, trace: TraceStore, scenario: Scenario, execution: dict[str, Any]) -> None:
+        agent_label = AGENT_EVENT_LABELS.get(execution["agent"], f"{execution['agent'].title()} Agent")
         if execution["status"] == "fallback":
             self._event(
                 trace,
                 scenario,
                 "fallback_used",
-                f"{execution['agent'].title()} Agent used fallback output.",
+                f"{agent_label} used fallback output.",
                 agent=execution["agent"],
                 duration_ms=execution["response_time_ms"],
                 cache_hit=execution["cache_hit"],
@@ -203,7 +211,7 @@ class RunOrchestrator:
             trace,
             scenario,
             event_type,
-            f"{execution['agent'].title()} Agent response ready.",
+            f"{agent_label} response ready.",
             agent=execution["agent"],
             duration_ms=execution["response_time_ms"],
             cache_hit=execution["cache_hit"],
@@ -213,7 +221,7 @@ class RunOrchestrator:
             trace,
             scenario,
             "agent_output_validated",
-            f"{execution['agent'].title()} Agent output validated.",
+            f"{agent_label} output validated.",
             agent=execution["agent"],
             metadata={"cache_key": execution["cache_key"]},
         )
