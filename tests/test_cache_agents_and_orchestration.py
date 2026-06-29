@@ -17,7 +17,7 @@ from droneguard_multiverse.integrations.pydantic_ai import (
     run_text_agent,
 )
 from droneguard_multiverse.observability.langsmith import configure_langsmith
-from droneguard_multiverse.orchestration.run import RunOrchestrator
+from droneguard_multiverse.orchestration.run import RunOrchestrator, build_run_health
 from droneguard_multiverse.paths import DATA_DIR
 from droneguard_multiverse.schemas.agents import (
     AgentOutputValidationError,
@@ -338,6 +338,35 @@ def test_full_dangerous_replay_run_returns_expected_decision() -> None:
     assert result["decision_context"]["risk_level"] == "high"
     assert [agent["agent"] for agent in result["agents"]] == ["vision", "telemetry", "commander"]
     assert all(agent["mode"] == "replay" for agent in result["agents"])
+    assert result["run_health"]["status"] == "all_replay"
+
+
+def test_run_health_reports_all_live_agents() -> None:
+    agents = [
+        {"agent": "vision", "status": "complete", "mode": "live", "cache_hit": False, "error": None},
+        {"agent": "telemetry", "status": "complete", "mode": "live", "cache_hit": False, "error": None},
+        {"agent": "commander", "status": "complete", "mode": "live", "cache_hit": False, "error": None},
+    ]
+
+    health = build_run_health(agents, requested_mode="live")
+
+    assert health["status"] == "all_live"
+    assert health["label"] == "All live"
+    assert health["counts"]["live"] == 3
+
+
+def test_run_health_flags_partial_fallback() -> None:
+    agents = [
+        {"agent": "vision", "status": "fallback", "mode": "replay", "cache_hit": True, "error": "failed"},
+        {"agent": "telemetry", "status": "complete", "mode": "live", "cache_hit": False, "error": None},
+        {"agent": "commander", "status": "complete", "mode": "live", "cache_hit": False, "error": None},
+    ]
+
+    health = build_run_health(agents, requested_mode="live")
+
+    assert health["status"] == "partial_fallback"
+    assert health["tone"] == "warning"
+    assert health["counts"]["fallback"] == 1
 
 
 def test_scenario_detail_includes_frame_urls() -> None:

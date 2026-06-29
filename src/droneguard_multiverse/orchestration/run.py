@@ -144,11 +144,13 @@ class RunOrchestrator:
             metadata={"total_ms": total_ms, "risk_level": decision_context["risk_level"]},
         )
 
+        agents = [vision.to_dict(), telemetry.to_dict(), commander.to_dict()]
         return {
             "run_id": run_id,
             "mode": mode,
             "scenario": self.get_scenario_detail(scenario_id),
-            "agents": [vision.to_dict(), telemetry.to_dict(), commander.to_dict()],
+            "agents": agents,
+            "run_health": build_run_health(agents, requested_mode=mode),
             "decision_context": decision_context,
             "decision": commander.normalized_output,
             "report": report,
@@ -251,6 +253,77 @@ def build_decision_context(
             "preserve return-to-start battery",
         ],
         "available_actions": list(ACTIONS),
+    }
+
+
+def build_run_health(agents: list[dict[str, Any]], *, requested_mode: str) -> dict[str, Any]:
+    if not agents:
+        return {
+            "status": "no_run",
+            "label": "No run",
+            "tone": "neutral",
+            "summary": "No agent run has completed.",
+            "counts": {"live": 0, "replay": 0, "fallback": 0, "error": 0, "total": 0},
+        }
+
+    fallback_count = sum(1 for agent in agents if agent.get("status") == "fallback")
+    error_count = sum(1 for agent in agents if agent.get("status") == "error")
+    live_count = sum(
+        1
+        for agent in agents
+        if agent.get("status") == "complete" and agent.get("mode") == "live" and not agent.get("cache_hit")
+    )
+    replay_count = sum(
+        1
+        for agent in agents
+        if agent.get("status") == "complete" and agent.get("mode") == "replay" and agent.get("cache_hit")
+    )
+    total = len(agents)
+    counts = {
+        "live": live_count,
+        "replay": replay_count,
+        "fallback": fallback_count,
+        "error": error_count,
+        "total": total,
+    }
+    if error_count:
+        return {
+            "status": "attention",
+            "label": "Needs attention",
+            "tone": "danger",
+            "summary": f"{error_count} agent step reported an error.",
+            "counts": counts,
+        }
+    if fallback_count:
+        return {
+            "status": "partial_fallback",
+            "label": "Partial fallback",
+            "tone": "warning",
+            "summary": f"{fallback_count} of {total} agents used replay fallback after a live-call failure.",
+            "counts": counts,
+        }
+    if live_count == total:
+        return {
+            "status": "all_live",
+            "label": "All live",
+            "tone": "success",
+            "summary": f"All {total} agents completed live Cerebras calls.",
+            "counts": counts,
+        }
+    if requested_mode == "replay" and replay_count == total:
+        return {
+            "status": "all_replay",
+            "label": "Replay",
+            "tone": "neutral",
+            "summary": f"All {total} agents replayed cached responses.",
+            "counts": counts,
+        }
+    return {
+        "status": "mixed",
+        "label": "Mixed run",
+        "tone": "warning",
+        "summary": f"{live_count} live, {replay_count} replay, {fallback_count} fallback.",
+        "counts": counts,
     }
 
 

@@ -83,6 +83,58 @@ h2 {
   flex-wrap: wrap;
 }
 
+.run-health {
+  min-width: 132px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+}
+
+.run-health span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.run-health strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.05;
+}
+
+.run-health.success {
+  border-color: rgba(47, 122, 79, 0.42);
+  background: rgba(47, 122, 79, 0.1);
+}
+
+.run-health.success strong {
+  color: var(--green);
+}
+
+.run-health.warning {
+  border-color: rgba(189, 116, 31, 0.5);
+  background: #fff8ed;
+}
+
+.run-health.warning strong {
+  color: var(--amber);
+}
+
+.run-health.danger {
+  border-color: rgba(179, 69, 52, 0.45);
+  background: rgba(179, 69, 52, 0.1);
+}
+
+.run-health.danger strong {
+  color: var(--red);
+}
+
 .mode-toggle {
   display: grid;
   gap: 5px;
@@ -504,9 +556,65 @@ button:disabled {
   font-size: 0.95rem;
 }
 
-.agent-card small {
+.agent-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #eef3f0;
   color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.agent-badge.success {
+  border-color: rgba(47, 122, 79, 0.38);
+  background: rgba(47, 122, 79, 0.12);
+  color: var(--green);
+}
+
+.agent-badge.warning {
+  border-color: rgba(189, 116, 31, 0.45);
+  background: #fff8ed;
+  color: var(--amber);
+}
+
+.agent-badge.danger {
+  border-color: rgba(179, 69, 52, 0.4);
+  background: rgba(179, 69, 52, 0.11);
+  color: var(--red);
+}
+
+.agent-badge.active {
+  border-color: rgba(29, 93, 115, 0.36);
+  background: rgba(29, 93, 115, 0.1);
+  color: var(--blue);
+}
+
+.agent-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px 10px;
+  color: var(--muted);
+  font-size: 0.76rem;
   font-weight: 800;
+}
+
+.agent-meta strong {
+  color: var(--red);
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .agent-card pre,
@@ -541,6 +649,36 @@ summary {
   display: grid;
   grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
   gap: 12px;
+}
+
+.trace-overview {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.trace-overview div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+}
+
+.trace-overview span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.trace-overview strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .event-list {
@@ -591,6 +729,7 @@ summary {
   .layout,
   .right-rail,
   .trace-events,
+  .trace-overview,
   .frame-strip {
     grid-template-columns: 1fr;
   }

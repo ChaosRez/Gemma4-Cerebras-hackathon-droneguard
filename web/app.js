@@ -22,6 +22,7 @@ const els = {
   scenarioCount: document.querySelector("#scenarioCount"),
   modeSelect: document.querySelector("#modeSelect"),
   runButton: document.querySelector("#runButton"),
+  runHealth: document.querySelector("#runHealth"),
   missionRisk: document.querySelector("#missionRisk"),
   missionTitle: document.querySelector("#missionTitle"),
   batteryMetric: document.querySelector("#batteryMetric"),
@@ -65,6 +66,7 @@ async function selectScenario(scenarioId) {
   state.missionProgress = 0;
   state.agentStage = -1;
   els.runMetric.textContent = "--";
+  setRunHealth(noRunHealth());
   state.scenario = await getJson(`/api/scenarios/${encodeURIComponent(scenarioId)}`);
   renderScenarioList();
   renderMission();
@@ -88,6 +90,7 @@ async function runAgents() {
   els.decisionAction.textContent = "Assessing";
   els.decisionMessage.textContent = "Mission evidence is streaming through Vision, Telemetry, and Commander.";
   els.decisionReasons.innerHTML = "";
+  setRunHealth(runningRunHealth(els.modeSelect.value));
   renderRunningAgents(0);
   renderMission();
   renderFrames();
@@ -111,13 +114,15 @@ async function runAgents() {
     setMissionHud(1, "Decision ready");
     renderDecision(result.decision);
     renderAgents(result.agents);
-    renderTrace(result.trace_events);
+    setRunHealth(result.run_health);
+    renderTrace(result.trace_events, result);
     els.runMetric.textContent = `${((performance.now() - started) / 1000).toFixed(1)} s`;
   } catch (error) {
     await animationPromise.catch(() => undefined);
     els.runMetric.textContent = "Error";
     els.decisionAction.textContent = "Error";
     els.decisionMessage.textContent = error.message;
+    setRunHealth(errorRunHealth(error));
   } finally {
     els.runButton.disabled = false;
     els.runButton.textContent = "Run Agents";
@@ -835,6 +840,42 @@ function resetDecision() {
   els.totalLatency.textContent = "--";
 }
 
+function noRunHealth() {
+  return {
+    status: "no_run",
+    label: "No run",
+    tone: "neutral",
+    summary: "No agent run has completed.",
+  };
+}
+
+function runningRunHealth(mode) {
+  return {
+    status: "running",
+    label: mode === "replay" ? "Replaying" : "Running live",
+    tone: mode === "replay" ? "neutral" : "success",
+    summary: mode === "replay" ? "Loading cached agent responses." : "Calling Cerebras for the selected scenario.",
+  };
+}
+
+function errorRunHealth(error) {
+  return {
+    status: "attention",
+    label: "Run error",
+    tone: "danger",
+    summary: error.message,
+  };
+}
+
+function setRunHealth(health = noRunHealth()) {
+  els.runHealth.className = `run-health ${health.tone ?? "neutral"}`;
+  els.runHealth.title = health.summary ?? health.label ?? "Run health";
+  els.runHealth.innerHTML = `
+    <span>Run health</span>
+    <strong>${escapeHtml(health.label ?? "--")}</strong>
+  `;
+}
+
 function renderDecision(decision) {
   els.decisionConfidence.textContent = `${Math.round(decision.confidence * 100)}%`;
   els.decisionAction.textContent = formatAction(decision.recommended_action);
@@ -883,12 +924,21 @@ function renderAgents(agents) {
 function agentCard(agent) {
   const output = agent.normalized_output ? pretty(agent.normalized_output) : "";
   const raw = agent.response ? pretty(agent.response) : "";
+  const modeLabel = agentModeLabel(agent);
   return `
-    <article class="agent-card">
+    <article class="agent-card ${escapeHtml(agentStatusClass(agent))}">
       <header>
         <h3>${titleCase(agent.agent)}</h3>
-        <small>${agent.status} · ${agent.mode} · ${agent.response_time_ms} ms</small>
+        <div class="agent-badges">
+          ${agentBadge(agentStatusLabel(agent), statusTone(agent))}
+          ${modeLabel !== "--" ? agentBadge(modeLabel, modeTone(agent)) : ""}
+          ${agent.cache_hit === true ? agentBadge("Cache hit", "neutral") : ""}
+        </div>
       </header>
+      <div class="agent-meta">
+        <span>${escapeHtml(formatLatency(agent.response_time_ms))}</span>
+        ${agent.error ? `<strong>${escapeHtml(agent.error)}</strong>` : ""}
+      </div>
       ${output ? `<pre>${escapeHtml(output)}</pre>` : ""}
       ${
         raw
@@ -897,6 +947,51 @@ function agentCard(agent) {
       }
     </article>
   `;
+}
+
+function agentBadge(label, tone) {
+  return `<span class="agent-badge ${escapeHtml(tone)}">${escapeHtml(label)}</span>`;
+}
+
+function agentStatusClass(agent) {
+  return `agent-${agent.status ?? "pending"}`;
+}
+
+function agentStatusLabel(agent) {
+  if (agent.status === "complete") return "Complete";
+  if (agent.status === "fallback") return "Fallback";
+  if (agent.status === "running") return "Running";
+  if (agent.status === "queued") return "Queued";
+  if (agent.status === "waiting") return "Waiting";
+  return titleCase(agent.status ?? "Pending");
+}
+
+function statusTone(agent) {
+  if (agent.status === "complete") return "success";
+  if (agent.status === "fallback") return "warning";
+  if (agent.status === "running") return "active";
+  if (agent.status === "error") return "danger";
+  return "neutral";
+}
+
+function agentModeLabel(agent) {
+  if (agent.status === "fallback") return "Replay fallback";
+  if (agent.mode === "live") return "Live Cerebras";
+  if (agent.mode === "refresh") return "Refresh";
+  if (agent.mode === "replay") return "Replay";
+  return String(agent.mode ?? "--");
+}
+
+function modeTone(agent) {
+  if (agent.status === "fallback") return "warning";
+  if (agent.mode === "live") return "success";
+  return "neutral";
+}
+
+function formatLatency(value) {
+  if (value === "..." || value === "--") return `${value} ms`;
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number} ms` : "-- ms";
 }
 
 function runMissionAnimation(durationMs) {
@@ -963,13 +1058,34 @@ function cancelMissionAnimation() {
   }
 }
 
-function renderTrace(events) {
+function renderTrace(events, result = state.result) {
   els.traceSummary.textContent = events.length ? `${events.length} events` : "No run";
   if (!events.length) {
     els.traceEvents.innerHTML = "";
     return;
   }
+  const scenarioMetadata = events[0]?.metadata ?? {};
+  const langsmith = scenarioMetadata.langsmith ?? {};
+  const overviewItems = [
+    ["Run", result?.run_id ?? events[0]?.run_id ?? "--"],
+    ["Health", result?.run_health?.label ?? "--"],
+    ["Runtime", scenarioMetadata.agent_runtime ?? "--"],
+    ["LangSmith", langsmith.enabled ? `${langsmith.project ?? "enabled"}` : langsmith.reason ?? "disabled"],
+    ["Mode", result?.mode ?? scenarioMetadata.mode ?? "--"],
+  ];
   els.traceEvents.innerHTML = `
+    <div class="trace-overview">
+      ${overviewItems
+        .map(
+          ([label, value]) => `
+            <div>
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(value)}</strong>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
     <div class="event-list">
       ${events
         .map(
